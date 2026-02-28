@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E1E2E" />
+      <stop offset="100%" stop-color="#11111B" />
+    </linearGradient>
+
+    <!-- Moon Inner Gradient (Neon Blue to Purple) -->
+    <linearGradient id="moonGrad" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#74C7EC" />
+      <stop offset="50%" stop-color="#89B4FA" />
+      <stop offset="100%" stop-color="#CBA6F7" />
+    </linearGradient>
+
+    <!-- Subtle Drop Shadow for the Moon -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Dark Rounded Square App Background -->
+  <rect width="100" height="100" rx="22" fill="url(#bgGrad)" />
+
+  <!-- Modern Crescent Moon -->
+  <!-- 
+       Created using two overlapping circles.
+       d = "M start_point A rx ry x-axis-rotation large-arc-flag sweep-flag end_point"
+  -->
+  <path d="M 60 20
+           A 30 30 0 1 0 80 75
+           A 35 35 0 1 1 60 20 Z" 
+        fill="url(#moonGrad)" 
+        filter="url(#glow)" />
+</svg>

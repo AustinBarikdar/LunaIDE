@@ -1,0 +1,33 @@
+{
+    "nameShort": "LunaIDE",
+    "nameLong": "LunaIDE",
+    "applicationName": "lunaide",
+    "dataFolderName": ".lunaide",
+    "win32MutexName": "lunaide",
+    "licenseName": "MIT",
+    "licenseUrl": "https://opensource.org/licenses/MIT",
+    "win32DirName": "LunaIDE",
+    "win32NameVersion": "LunaIDE",
+    "win32RegValueName": "LunaIDE",
+    "win32AppId": "{{LUNA-IDE-APP-ID}}",
+    "win32x64AppId": "{{LUNA-IDE-APP-ID-X64}}",
+    "win32arm64AppId": "{{LUNA-IDE-APP-ID-ARM64}}",
+    "darwinBundleIdentifier": "com.lunaide.app",
+    "reportIssueUrl": "https://github.com/your-org/lunaide/issues",
+    "urlProtocol": "lunaide",
+    "extensionsGallery": {
+        "serviceUrl": "https://open-vsx.org/vscode/gallery",
+        "itemUrl": "https://open-vsx.org/vscode/item"
+    },
+    "extensionEnabledApiProposals": {},
+    "defaultSettings": {
+        "files.associations": {
+            "*.luau": "luau",
+            "*.lua": "lua"
+        },
+        "robloxIde.rojo.autoStart": true,
+        "editor.fontFamily": "'JetBrains Mono', 'Fira Code', Menlo, monospace",
+        "editor.fontSize": 14,
+        "workbench.colorTheme": "Default Dark Modern"
+    }
+}

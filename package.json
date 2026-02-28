@@ -1,0 +1,22 @@
+{
+  "name": "luna-ide",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LunaIDE - A VS Code-based IDE for Roblox development with built-in Rojo, Luau LSP, and MCP server",
+  "scripts": {
+    "build": "pnpm -r build",
+    "watch": "pnpm -r --parallel watch",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "clean": "pnpm -r clean"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

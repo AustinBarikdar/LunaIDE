@@ -1,0 +1,579 @@
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as http from 'http';
+import { BRIDGE_PORT_FILE, ROBLOXIDE_DIR, INSTRUCTIONS_FILE, LUAU_EXTENSIONS, ROJO_PROJECT_FILE } from '@roblox-ide/shared';
+import { SessionManager } from '../sessions/sessionManager.js';
+import { LuauClient } from '../luau/luauClient.js';
+import { RojoManager } from '../rojo/rojoManager.js';
+import { StudioManager } from '../studio/studioManager.js';
+import { OpenCloudClient } from '../opencloud/openCloudClient.js';
+
+interface BridgeResponse {
+    success: boolean;
+    data?: unknown;
+    error?: string;
+}
+
+/**
+ * HTTP bridge server running inside the VS Code extension.
+ * The MCP server connects to this to access project data.
+ */
+export class BridgeServer implements vscode.Disposable {
+    private server: http.Server | null = null;
+    private port: number = 0;
+    private outputChannel: vscode.OutputChannel;
+    private workspaceRoot: string;
+
+    constructor(
+        workspaceRoot: string,
+        private sessionManager: SessionManager,
+        private luauClient: LuauClient,
+        private rojoManager: RojoManager,
+        private studioManager: StudioManager,
+        private openCloudClient: OpenCloudClient,
+    ) {
+        this.workspaceRoot = workspaceRoot;
+        this.outputChannel = vscode.window.createOutputChannel('LunaIDE: Bridge');
+    }
+
+    async start(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.server = http.createServer((req, res) => {
+                this.handleRequest(req, res);
+            });
+
+            // Listen on random available port
+            this.server.listen(0, '127.0.0.1', () => {
+                const addr = this.server!.address();
+                if (addr && typeof addr === 'object') {
+                    this.port = addr.port;
+                    this.writePortFile();
+                    this.log(`Bridge server listening on port ${this.port}`);
+                    resolve();
+                } else {
+                    reject(new Error('Failed to get server address'));
+                }
+            });
+
+            this.server.on('error', (err) => {
+                this.log(`Bridge server error: ${err.message}`);
+                reject(err);
+            });
+        });
+    }
+
+    private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        const url = new URL(req.url || '/', `http://127.0.0.1:${this.port}`);
+        const pathname = url.pathname;
+        const method = req.method || 'GET';
+
+        res.setHeader('Content-Type', 'application/json');
+
+        try {
+            let body: Record<string, unknown> = {};
+            if (method === 'POST') {
+                body = await this.readBody(req);
+            }
+
+            let result: BridgeResponse;
+
+            // --- Routes ---
+            if (method === 'GET' && pathname === '/health') {
+                result = { success: true, data: { status: 'ok', port: this.port } };
+            }
+            // Scripts
+            else if (method === 'POST' && pathname === '/scripts/read') {
+                result = await this.handleReadScript(body);
+            }
+            else if (method === 'POST' && pathname === '/scripts/write') {
+                result = await this.handleWriteScript(body);
+            }
+            else if (method === 'POST' && pathname === '/scripts/search') {
+                result = await this.handleSearchFiles(body);
+            }
+            // Project
+            else if (method === 'GET' && pathname === '/project/structure') {
+                result = await this.handleGetProjectStructure();
+            }
+            else if (method === 'GET' && pathname === '/project/instructions') {
+                result = await this.handleGetInstructions();
+            }
+            // Diagnostics
+            else if (method === 'GET' && pathname === '/diagnostics') {
+                const filePath = url.searchParams.get('filePath') || undefined;
+                result = await this.handleGetDiagnostics(filePath);
+            }
+            // Sessions
+            else if (method === 'GET' && pathname === '/sessions/snapshots') {
+                result = await this.handleListSnapshots();
+            }
+            else if (method === 'POST' && pathname === '/sessions/rollback') {
+                result = await this.handleRollback(body);
+            }
+            // Instances
+            else if (method === 'GET' && pathname === '/instances') {
+                const parentPath = url.searchParams.get('parentPath') || undefined;
+                result = await this.handleListInstances(parentPath);
+            }
+            else if (method === 'GET' && pathname === '/instances/properties') {
+                const instancePath = url.searchParams.get('path') || '';
+                result = await this.handleGetProperties(instancePath);
+            }
+            else if (method === 'POST' && pathname === '/instances/properties') {
+                result = await this.handleSetProperties(body);
+            }
+            // Studio (MCP -> bridge -> StudioManager -> Studio plugin)
+            else if (method === 'POST' && pathname === '/studio/playtest/start') {
+                result = await this.handleStartPlaytest(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/playtest/stop') {
+                result = await this.handleStopPlaytest(body);
+            }
+            else if (method === 'GET' && pathname === '/studio/output') {
+                const since = url.searchParams.get('since');
+                const studioId = url.searchParams.get('studioId') || undefined;
+                result = await this.handleGetOutput(since ? parseInt(since, 10) : undefined, studioId);
+            }
+            else if (method === 'POST' && pathname === '/studio/children') {
+                result = await this.handleGetStudioChildren(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/instance-properties') {
+                result = await this.handleGetStudioInstanceProperties(body);
+            }
+            // OpenCloud
+            else if (method === 'POST' && pathname === '/opencloud/publish') {
+                result = await this.handlePublishPlace(body);
+            }
+            else if (method === 'POST' && pathname === '/opencloud/datastore') {
+                result = await this.handleDatastore(body);
+            }
+            else if (method === 'POST' && pathname === '/opencloud/message') {
+                result = await this.handleSendMessage(body);
+            }
+            else {
+                result = { success: false, error: `Unknown route: ${method} ${pathname}` };
+                res.statusCode = 404;
+            }
+
+            res.end(JSON.stringify(result));
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.log(`Error handling ${method} ${pathname}: ${message}`);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ success: false, error: message }));
+        }
+    }
+
+    // --- Script handlers ---
+
+    private async handleReadScript(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const filePath = this.resolvePath(body.filePath as string);
+        if (!fs.existsSync(filePath)) {
+            return { success: false, error: `File not found: ${filePath}` };
+        }
+        const content = fs.readFileSync(filePath, 'utf-8');
+        return { success: true, data: content };
+    }
+
+    private async handleWriteScript(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const filePath = this.resolvePath(body.filePath as string);
+        const content = body.content as string;
+        const description = (body.description as string) || `Write to ${path.basename(filePath)}`;
+
+        // Snapshot before writing
+        await this.sessionManager.snapshotBeforeWrite(filePath, content, description);
+
+        // Write the file
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(filePath, content, 'utf-8');
+
+        return { success: true };
+    }
+
+    private async handleSearchFiles(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const query = body.query as string;
+        const isRegex = body.regex as boolean | undefined;
+        const includeGlob = body.include as string | undefined;
+
+        const results: Array<{ file: string; line: number; text: string }> = [];
+        const pattern = isRegex ? new RegExp(query, 'gm') : null;
+
+        const walkDir = (dir: string) => {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                const relPath = path.relative(this.workspaceRoot, fullPath);
+
+                // Skip hidden dirs and node_modules
+                if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+
+                if (entry.isDirectory()) {
+                    walkDir(fullPath);
+                } else if (entry.isFile()) {
+                    const ext = path.extname(entry.name);
+                    if (!LUAU_EXTENSIONS.includes(ext as any)) continue;
+                    if (includeGlob) {
+                        // Simple glob matching (just check if path includes the non-wildcard parts)
+                        const parts = includeGlob.replace(/\*/g, '').split('/').filter(Boolean);
+                        if (parts.length > 0 && !parts.every((p) => relPath.includes(p))) continue;
+                    }
+
+                    try {
+                        const content = fs.readFileSync(fullPath, 'utf-8');
+                        const lines = content.split('\n');
+                        for (let i = 0; i < lines.length; i++) {
+                            const match = pattern
+                                ? pattern.test(lines[i])
+                                : lines[i].includes(query);
+                            if (match) {
+                                results.push({ file: relPath, line: i + 1, text: lines[i].trim() });
+                            }
+                            if (pattern) pattern.lastIndex = 0; // Reset regex state
+                        }
+                    } catch {
+                        // Skip unreadable files
+                    }
+                }
+            }
+        };
+
+        walkDir(this.workspaceRoot);
+        return { success: true, data: results };
+    }
+
+    // --- Project handlers ---
+
+    private async handleGetProjectStructure(): Promise<BridgeResponse> {
+        const projectFile = path.join(this.workspaceRoot, ROJO_PROJECT_FILE);
+        if (!fs.existsSync(projectFile)) {
+            return { success: false, error: 'No default.project.json found' };
+        }
+        const content = fs.readFileSync(projectFile, 'utf-8');
+        return { success: true, data: JSON.parse(content) };
+    }
+
+    private async handleGetInstructions(): Promise<BridgeResponse> {
+        const instructionsPath = path.join(this.workspaceRoot, INSTRUCTIONS_FILE);
+        if (!fs.existsSync(instructionsPath)) {
+            return { success: true, data: '(No instructions file found. Create .lunaide/instructions.md to add project instructions.)' };
+        }
+        const content = fs.readFileSync(instructionsPath, 'utf-8');
+        return { success: true, data: content };
+    }
+
+    // --- Diagnostics handler ---
+
+    private async handleGetDiagnostics(filePath?: string): Promise<BridgeResponse> {
+        if (filePath) {
+            const resolved = this.resolvePath(filePath);
+            const diagnostics = this.luauClient.getDiagnosticsForFile(resolved);
+            return { success: true, data: diagnostics };
+        }
+        const diagnostics = this.luauClient.getAllDiagnostics();
+        return { success: true, data: diagnostics };
+    }
+
+    // --- Session handlers ---
+
+    private async handleListSnapshots(): Promise<BridgeResponse> {
+        const snapshots = this.sessionManager.getStore().listSnapshots();
+        return { success: true, data: snapshots };
+    }
+
+    private async handleRollback(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const snapshotId = body.snapshotId as string;
+        await this.sessionManager.rollbackToSnapshot(snapshotId);
+        return { success: true };
+    }
+
+    // --- Instance handlers ---
+
+    private async handleListInstances(_parentPath?: string): Promise<BridgeResponse> {
+        const projectFile = path.join(this.workspaceRoot, ROJO_PROJECT_FILE);
+        if (!fs.existsSync(projectFile)) {
+            return { success: false, error: 'No default.project.json found' };
+        }
+        const project = JSON.parse(fs.readFileSync(projectFile, 'utf-8'));
+        // Return the tree (optionally filtered by parentPath in a future iteration)
+        return { success: true, data: project.tree || {} };
+    }
+
+    private async handleGetProperties(instancePath: string): Promise<BridgeResponse> {
+        const projectFile = path.join(this.workspaceRoot, ROJO_PROJECT_FILE);
+        if (!fs.existsSync(projectFile)) {
+            return { success: false, error: 'No default.project.json found' };
+        }
+        const project = JSON.parse(fs.readFileSync(projectFile, 'utf-8'));
+
+        // Navigate the tree by path segments
+        const parts = instancePath.split('.').filter(Boolean);
+        let node = project.tree;
+        for (const part of parts) {
+            if (part === 'game' || part === project.name) continue;
+            if (node[part]) {
+                node = node[part];
+            } else {
+                return { success: false, error: `Instance not found: ${instancePath}` };
+            }
+        }
+
+        return {
+            success: true,
+            data: {
+                className: node.$className,
+                path: node.$path,
+                properties: node.$properties || {},
+                ignoreUnknownInstances: node.$ignoreUnknownInstances,
+            },
+        };
+    }
+
+    private async handleSetProperties(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const instancePath = body.path as string;
+        const properties = body.properties as Record<string, unknown>;
+        const projectFile = path.join(this.workspaceRoot, ROJO_PROJECT_FILE);
+
+        if (!fs.existsSync(projectFile)) {
+            return { success: false, error: 'No default.project.json found' };
+        }
+
+        const project = JSON.parse(fs.readFileSync(projectFile, 'utf-8'));
+        const parts = instancePath.split('.').filter(Boolean);
+        let node = project.tree;
+        for (const part of parts) {
+            if (part === 'game' || part === project.name) continue;
+            if (node[part]) {
+                node = node[part];
+            } else {
+                return { success: false, error: `Instance not found: ${instancePath}` };
+            }
+        }
+
+        // Set properties
+        if (!node.$properties) node.$properties = {};
+        Object.assign(node.$properties, properties);
+
+        // Save back
+        await this.sessionManager.snapshotBeforeWrite(
+            projectFile,
+            JSON.stringify(project, null, 2),
+            `Set properties on ${instancePath}`
+        );
+        fs.writeFileSync(projectFile, JSON.stringify(project, null, 2), 'utf-8');
+
+        return { success: true };
+    }
+
+    // --- Studio handlers ---
+
+    private async handleStartPlaytest(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+
+        try {
+            // Send start_playtest command to Studio
+            const result = await this.studioManager.sendCommand(studioId, 'start_playtest', {
+                mode: body.mode || 'Play',
+            });
+
+            // If test script provided, inject it after a short delay
+            if (body.testScript) {
+                setTimeout(async () => {
+                    try {
+                        await this.studioManager.sendCommand(studioId, 'inject_script', {
+                            source: body.testScript,
+                        });
+                    } catch (err) {
+                        this.log(`Failed to inject test script: ${err}`);
+                    }
+                }, 2000);
+            }
+
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleStopPlaytest(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'stop_playtest', {});
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleGetOutput(sinceTimestamp?: number, studioId?: string): Promise<BridgeResponse> {
+        const output = this.studioManager.getOutput(studioId, sinceTimestamp);
+        return { success: true, data: output };
+    }
+
+    private async handleGetStudioChildren(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'get_children', {
+                path: body.path || 'game',
+                depth: body.depth || 1,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleGetStudioInstanceProperties(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'get_instance_properties', {
+                path: body.path,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    // --- OpenCloud handlers ---
+
+    private async handlePublishPlace(body: Record<string, unknown>): Promise<BridgeResponse> {
+        try {
+            const filePath = this.resolvePath(body.filePath as string);
+            if (!fs.existsSync(filePath)) {
+                return { success: false, error: `File not found: ${filePath}` };
+            }
+            const content = fs.readFileSync(filePath);
+            const result = await this.openCloudClient.publishPlace(
+                body.universeId as number,
+                body.placeId as number,
+                content,
+                (body.versionType as any) || 'Published'
+            );
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleDatastore(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const action = body.action as string;
+        const universeId = body.universeId as number;
+        try {
+            let result: unknown;
+            switch (action) {
+                case 'list_datastores':
+                    result = await this.openCloudClient.listDataStores(universeId, body.prefix as string, body.limit as number);
+                    break;
+                case 'list_entries':
+                    result = await this.openCloudClient.listDataStoreEntries(universeId, body.datastoreName as string, body.prefix as string, body.limit as number, body.scope as string);
+                    break;
+                case 'get':
+                    result = await this.openCloudClient.getDataStoreEntry(universeId, body.datastoreName as string, body.key as string, body.scope as string);
+                    break;
+                case 'set':
+                    result = await this.openCloudClient.setDataStoreEntry(universeId, body.datastoreName as string, body.key as string, body.value, body.scope as string);
+                    break;
+                case 'delete':
+                    await this.openCloudClient.deleteDataStoreEntry(universeId, body.datastoreName as string, body.key as string, body.scope as string);
+                    result = { deleted: true };
+                    break;
+                default:
+                    return { success: false, error: `Unknown datastore action: ${action}` };
+            }
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleSendMessage(body: Record<string, unknown>): Promise<BridgeResponse> {
+        try {
+            await this.openCloudClient.publishMessage(
+                body.universeId as number,
+                body.topic as string,
+                body.message as string
+            );
+            return { success: true };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    // --- Utilities ---
+
+    private resolvePath(filePath: string): string {
+        if (path.isAbsolute(filePath)) return filePath;
+        return path.join(this.workspaceRoot, filePath);
+    }
+
+    private writePortFile(): void {
+        const portDir = path.join(this.workspaceRoot, ROBLOXIDE_DIR);
+        if (!fs.existsSync(portDir)) {
+            fs.mkdirSync(portDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(this.workspaceRoot, BRIDGE_PORT_FILE), String(this.port), 'utf-8');
+    }
+
+    private removePortFile(): void {
+        const portFilePath = path.join(this.workspaceRoot, BRIDGE_PORT_FILE);
+        if (fs.existsSync(portFilePath)) {
+            fs.unlinkSync(portFilePath);
+        }
+    }
+
+    private log(message: string): void {
+        const timestamp = new Date().toLocaleTimeString();
+        this.outputChannel.appendLine(`[${timestamp}] ${message}`);
+    }
+
+    private readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+        return new Promise((resolve, reject) => {
+            const chunks: Buffer[] = [];
+            req.on('data', (chunk: Buffer) => chunks.push(chunk));
+            req.on('end', () => {
+                try {
+                    const text = Buffer.concat(chunks).toString('utf-8');
+                    resolve(text ? JSON.parse(text) : {});
+                } catch (err) {
+                    reject(err);
+                }
+            });
+            req.on('error', reject);
+        });
+    }
+
+    dispose(): void {
+        this.removePortFile();
+        if (this.server) {
+            this.server.close();
+            this.server = null;
+        }
+        this.outputChannel.dispose();
+    }
+}

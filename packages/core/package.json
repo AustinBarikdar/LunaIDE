@@ -1,0 +1,178 @@
+{
+  "name": "roblox-ide-core",
+  "displayName": "LunaIDE",
+  "description": "Roblox development IDE with built-in Rojo, Luau LSP, and MCP server",
+  "version": "0.1.0",
+  "publisher": "roblox-ide",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/default.project.json",
+    "onLanguage:luau",
+    "onLanguage:lua"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "package": "vsce package --no-dependencies"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "robloxIde.rojo.start",
+        "title": "LunaIDE: Start Rojo"
+      },
+      {
+        "command": "robloxIde.rojo.stop",
+        "title": "LunaIDE: Stop Rojo"
+      },
+      {
+        "command": "robloxIde.rojo.restart",
+        "title": "LunaIDE: Restart Rojo"
+      },
+      {
+        "command": "robloxIde.luau.restart",
+        "title": "LunaIDE: Restart Luau Language Server"
+      },
+      {
+        "command": "robloxIde.sessions.viewHistory",
+        "title": "LunaIDE: View Session History"
+      },
+      {
+        "command": "robloxIde.sessions.rollback",
+        "title": "LunaIDE: Rollback to Snapshot"
+      },
+      {
+        "command": "robloxIde.instructions.edit",
+        "title": "LunaIDE: Edit Instructions"
+      },
+      {
+        "command": "robloxIde.opencloud.setApiKey",
+        "title": "LunaIDE: Set Open Cloud API Key"
+      },
+      {
+        "command": "lunaide.showWelcome",
+        "title": "LunaIDE: Show Welcome Screen"
+      },
+      {
+        "command": "lunaide.createProject",
+        "title": "LunaIDE: Create New Project"
+      }
+    ],
+    "configuration": {
+      "title": "LunaIDE",
+      "properties": {
+        "robloxIde.rojo.path": {
+          "type": "string",
+          "default": "auto",
+          "description": "Path to the rojo binary. Set to 'auto' to detect from PATH or aftman."
+        },
+        "robloxIde.rojo.projectFile": {
+          "type": "string",
+          "default": "default.project.json",
+          "description": "Rojo project file name."
+        },
+        "robloxIde.rojo.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start Rojo when a project is opened."
+        },
+        "robloxIde.rojo.port": {
+          "type": "number",
+          "default": 34872,
+          "description": "Port for Rojo serve."
+        },
+        "robloxIde.luau.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Luau Language Server."
+        },
+        "robloxIde.luau.path": {
+          "type": "string",
+          "default": "auto",
+          "description": "Path to luau-lsp binary. Set to 'auto' to use bundled or detect from PATH."
+        },
+        "robloxIde.luau.sourcemap.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Rojo sourcemap generation for Luau LSP."
+        },
+        "robloxIde.luau.sourcemap.autogenerate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically regenerate sourcemap when project changes."
+        },
+        "robloxIde.studio.bridgePort": {
+          "type": "number",
+          "default": 21026,
+          "description": "Port for Studio plugin communication."
+        },
+        "robloxIde.sessions.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic session snapshots."
+        },
+        "robloxIde.sessions.maxSnapshots": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum number of session snapshots to keep."
+        }
+      }
+    },
+    "languages": [
+      {
+        "id": "luau",
+        "aliases": [
+          "Luau",
+          "luau"
+        ],
+        "extensions": [
+          ".luau"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "robloxIde",
+          "title": "LunaIDE",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "robloxIde": [
+        {
+          "id": "robloxIde.sessionHistory",
+          "name": "Session History"
+        },
+        {
+          "id": "robloxIde.studioInstances",
+          "name": "Studio Instances"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "diff-match-patch": "^1.0.5"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@types/node": "^20.0.0",
+    "@types/diff-match-patch": "^1.0.36",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.5.0",
+    "@roblox-ide/shared": "workspace:*"
+  }
+}

@@ -1,0 +1,30 @@
+node_modules/
+dist/
+out/
+*.vsix
+.lunaide/
+.robloxide/
+LunaIDE-dist/
+RobloxIDE-dist/
+*.js.map
+*.d.ts.map
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build artifacts
+*.tsbuildinfo

@@ -1,0 +1,66 @@
+import { BridgeClient } from '../bridge/bridgeClient.js';
+import { LockManager } from '../locking/lockManager.js';
+import { readScriptTool } from './readScript.js';
+import { writeScriptTool } from './writeScript.js';
+import { searchCodebaseTool } from './searchCodebase.js';
+import { listInstancesTool } from './listInstances.js';
+import { getPropertiesTool } from './getProperties.js';
+import { setPropertiesTool } from './setProperties.js';
+import { getDiagnosticsTool } from './getDiagnostics.js';
+import { getProjectStructureTool } from './getProjectStructure.js';
+import { rollbackSessionTool } from './rollbackSession.js';
+import { startPlaytestTool } from './startPlaytest.js';
+import { stopPlaytestTool } from './stopPlaytest.js';
+import { getOutputTool } from './getOutput.js';
+import { getChildrenTool } from './getChildren.js';
+import { getInstancePropertiesTool } from './getInstanceProperties.js';
+import { acquireLockTool } from './acquireLock.js';
+import { releaseLockTool } from './releaseLock.js';
+import { publishPlaceTool } from './publishPlace.js';
+import { manageDatastoreTool } from './manageDatastore.js';
+import { sendMessageTool } from './sendMessage.js';
+
+export interface ToolDefinition {
+    name: string;
+    description: string;
+    inputSchema: {
+        type: 'object';
+        properties: Record<string, unknown>;
+        required?: string[];
+    };
+    handler: (args: Record<string, unknown>) => Promise<{
+        content: Array<{ type: 'text'; text: string }>;
+        isError?: boolean;
+    }>;
+}
+
+/**
+ * Create all MCP tool definitions bound to a bridge client and lock manager.
+ */
+export function createTools(bridge: BridgeClient, lockManager: LockManager): ToolDefinition[] {
+    return [
+        // Core tools
+        readScriptTool(bridge),
+        writeScriptTool(bridge),
+        searchCodebaseTool(bridge),
+        listInstancesTool(bridge),
+        getPropertiesTool(bridge),
+        setPropertiesTool(bridge),
+        getDiagnosticsTool(bridge),
+        getProjectStructureTool(bridge),
+        rollbackSessionTool(bridge),
+        // Studio tools
+        startPlaytestTool(bridge),
+        stopPlaytestTool(bridge),
+        getOutputTool(bridge),
+        getChildrenTool(bridge),
+        getInstancePropertiesTool(bridge),
+        // File locking
+        acquireLockTool(lockManager),
+        releaseLockTool(lockManager),
+        // OpenCloud
+        publishPlaceTool(bridge),
+        manageDatastoreTool(bridge),
+        sendMessageTool(bridge),
+    ] as ToolDefinition[];
+}
