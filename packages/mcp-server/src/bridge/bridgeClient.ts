@@ -1,6 +1,5 @@
 import * as fs from 'fs';
-import * as path from 'path';
-import { BRIDGE_PORT_FILE } from '@roblox-ide/shared';
+import { getBridgePortFile } from '@roblox-ide/shared';
 
 interface BridgeResponse {
     success: boolean;
@@ -22,7 +21,7 @@ export class BridgeClient {
     }
 
     async connect(): Promise<void> {
-        const portFile = path.join(this.workspacePath, BRIDGE_PORT_FILE);
+        const portFile = getBridgePortFile(this.workspacePath);
         if (!fs.existsSync(portFile)) {
             throw new Error(
                 `Bridge port file not found at ${portFile}. Is the LunaIDE extension running?`

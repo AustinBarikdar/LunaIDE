@@ -13,6 +13,7 @@
     "Other"
   ],
   "activationEvents": [
+    "*",
     "workspaceContains:**/default.project.json",
     "onLanguage:luau",
     "onLanguage:lua"
@@ -26,6 +27,11 @@
     "package": "vsce package --no-dependencies"
   },
   "contributes": {
+    "configurationDefaults": {
+      "workbench.startupEditor": "none",
+      "workbench.tips.enabled": false,
+      "workbench.editor.showTabs": "none"
+    },
     "commands": [
       {
         "command": "robloxIde.rojo.start",
@@ -155,6 +161,10 @@
         {
           "id": "robloxIde.sessionHistory",
           "name": "Session History"
+        },
+        {
+          "id": "robloxIde.explorer",
+          "name": "Explorer"
         },
         {
           "id": "robloxIde.studioInstances",

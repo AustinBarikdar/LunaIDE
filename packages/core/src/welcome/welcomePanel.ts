@@ -1,34 +1,70 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 
+interface RecentProject {
+    name: string;
+    parentPath: string;
+    fullPath: string;
+}
+
 export class WelcomePanel {
     public static currentPanel: WelcomePanel | undefined;
     private readonly _panel: vscode.WebviewPanel;
-    private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
 
-    private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+    private constructor(
+        panel: vscode.WebviewPanel,
+        _extensionUri: vscode.Uri,
+        recentProjects: RecentProject[],
+        totalRecent: number,
+    ) {
         this._panel = panel;
-        this._extensionUri = extensionUri;
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
-
-        this._panel.webview.html = this._getHtmlForWebview();
+        this._panel.webview.html = this._getHtml(recentProjects, totalRecent);
 
         this._panel.webview.onDidReceiveMessage(
-            async message => {
+            async (message) => {
                 switch (message.command) {
+                    case 'openProject': {
+                        const uris = await vscode.window.showOpenDialog({
+                            canSelectFiles: false,
+                            canSelectFolders: true,
+                            canSelectMany: false,
+                            openLabel: 'Open Project Folder',
+                        });
+                        if (uris?.[0]) {
+                            vscode.commands.executeCommand('vscode.openFolder', uris[0], false);
+                        }
+                        return;
+                    }
                     case 'createProject':
                         vscode.commands.executeCommand('lunaide.createProject', message.projectName);
+                        return;
+                    case 'openRecent':
+                        vscode.commands.executeCommand(
+                            'vscode.openFolder',
+                            vscode.Uri.file(message.path),
+                            false,
+                        );
+                        return;
+                    case 'viewAllRecent':
+                        vscode.commands.executeCommand('workbench.action.openRecent');
+                        return;
+                    case 'cloneRepo':
+                        vscode.commands.executeCommand('git.clone');
+                        return;
+                    case 'openSearch':
+                        vscode.commands.executeCommand('workbench.action.quickOpen');
                         return;
                 }
             },
             null,
-            this._disposables
+            this._disposables,
         );
     }
 
-    public static createOrShow(extensionUri: vscode.Uri) {
+    public static async createOrShow(extensionUri: vscode.Uri) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
@@ -38,262 +74,465 @@ export class WelcomePanel {
             return;
         }
 
+        const { recentProjects, total } = await WelcomePanel._getRecentProjects();
+
         const panel = vscode.window.createWebviewPanel(
             'lunaIdeWelcome',
-            'Welcome - LunaIDE',
+            'Welcome — LunaIDE',
             column || vscode.ViewColumn.One,
             {
                 enableScripts: true,
                 retainContextWhenHidden: true,
-                localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media'), vscode.Uri.joinPath(extensionUri, 'dist')]
-            }
+            },
         );
 
-        WelcomePanel.currentPanel = new WelcomePanel(panel, extensionUri);
+        WelcomePanel.currentPanel = new WelcomePanel(panel, extensionUri, recentProjects, total);
+    }
+
+    private static async _getRecentProjects(): Promise<{ recentProjects: RecentProject[]; total: number }> {
+        try {
+            const recent = await vscode.commands.executeCommand('_workbench.getRecentlyOpened') as {
+                workspaces?: Array<{ folderUri?: vscode.Uri; workspace?: { configPath: vscode.Uri } }>;
+            };
+            const workspaces = recent?.workspaces ?? [];
+            const folders = workspaces.filter((w) => w.folderUri);
+            const total = folders.length;
+            const recentProjects: RecentProject[] = folders.slice(0, 7).map((w) => {
+                const fsPath = (w.folderUri as vscode.Uri).fsPath;
+                const home = process.env.HOME ?? '';
+                const displayPath = fsPath.startsWith(home)
+                    ? '~' + fsPath.slice(home.length)
+                    : fsPath;
+                return {
+                    name: path.basename(fsPath),
+                    parentPath: path.dirname(displayPath),
+                    fullPath: fsPath,
+                };
+            });
+            return { recentProjects, total };
+        } catch {
+            return { recentProjects: [], total: 0 };
+        }
     }
 
     public dispose() {
         WelcomePanel.currentPanel = undefined;
         this._panel.dispose();
         while (this._disposables.length) {
-            const x = this._disposables.pop();
-            if (x) {
-                x.dispose();
-            }
+            this._disposables.pop()?.dispose();
         }
     }
 
-    private _getHtmlForWebview() {
+    private _getHtml(recentProjects: RecentProject[], totalRecent: number): string {
+        const recentRows = recentProjects.map((p) => {
+            const letter = escapeHtml(p.name.charAt(0).toUpperCase());
+            return `
+            <div class="recent-row" onclick="openRecent(${JSON.stringify(p.fullPath)})">
+                <div class="recent-avatar">${letter}</div>
+                <div class="recent-info">
+                    <span class="recent-name">${escapeHtml(p.name)}</span>
+                    <span class="recent-path">${escapeHtml(p.parentPath + '/' + p.name)}</span>
+                </div>
+            </div>`;
+        }).join('');
+
+        const showMoreBtn = totalRecent > recentProjects.length ? `
+            <div class="show-more" onclick="viewAll()">
+                <span class="show-more-dots">···</span> Show more projects
+            </div>` : '';
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to LunaIDE</title>
-    <style>
-        :root {
-            --bg-color: #11111B;
-            --card-bg: rgba(30, 30, 46, 0.7);
-            --card-border: rgba(255, 255, 255, 0.1);
-            --text-main: #CDD6F4;
-            --text-muted: #A6ADC8;
-            --accent-start: #74C7EC;
-            --accent-mid: #89B4FA;
-            --accent-end: #CBA6F7;
-            --input-bg: rgba(0, 0, 0, 0.3);
-            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        }
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Welcome — LunaIDE</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            background-color: var(--bg-color);
-            background-image: 
-                radial-gradient(circle at 15% 50%, rgba(116, 199, 236, 0.1), transparent 25%),
-                radial-gradient(circle at 85% 30%, rgba(203, 166, 247, 0.15), transparent 25%);
-            font-family: var(--font-family);
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+  body {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    font-size: 13px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 52px 64px 40px;
+    overflow: hidden;
+    animation: fadeIn 0.3s ease forwards;
+    opacity: 0;
+  }
 
-        .container {
-            width: 100%;
-            max-width: 600px;
-            padding: 20px;
-        }
+  @keyframes fadeIn { to { opacity: 1; } }
 
-        .card {
-            background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 20px;
-            padding: 40px;
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    margin-bottom: 52px;
+  }
 
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, var(--accent-start), var(--accent-mid), var(--accent-end));
-            opacity: 0.7;
-        }
+  .app-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
 
-        .logo-container {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 20px;
-            gap: 15px;
-        }
+  .header-text h1 {
+    font-size: 30px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    letter-spacing: 0.18em;
+    margin-bottom: 6px;
+    line-height: 1;
+  }
 
-        .logo-svg {
-            width: 48px;
-            height: 48px;
-        }
+  .header-text p {
+    font-size: 13px;
+    color: var(--vscode-descriptionForeground);
+    letter-spacing: 0.01em;
+  }
 
-        h1 {
-            margin: 0;
-            font-size: 32px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-            background: linear-gradient(90deg, #fff, #CDD6F4);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
+  /* ── Two-column body ── */
+  .body {
+    display: grid;
+    grid-template-columns: 1fr 1px 1fr;
+    gap: 0 48px;
+    flex: 1;
+    min-height: 0;
+  }
 
-        p {
-            color: var(--text-muted);
-            font-size: 16px;
-            margin-top: 10px;
-            margin-bottom: 40px;
-        }
+  .divider {
+    background: var(--vscode-widget-border, rgba(255,255,255,0.07));
+    align-self: stretch;
+  }
 
-        .input-group {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            align-items: center;
-        }
+  /* ── Section label ── */
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--vscode-descriptionForeground);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
 
-        input[type="text"] {
-            width: 100%;
-            max-width: 400px;
-            background: var(--input-bg);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            color: var(--text-main);
-            padding: 16px 20px;
-            border-radius: 12px;
-            font-size: 16px;
-            outline: none;
-            transition: all 0.2s ease;
-            box-sizing: border-box;
-        }
+  /* ── Action rows ── */
+  .action-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.1s;
+    margin-bottom: 4px;
+    background: var(--vscode-welcomePage-tileBackground, transparent);
+    border: 1px solid var(--vscode-welcomePage-tileBorder, var(--vscode-widget-border, rgba(255,255,255,0.06)));
+  }
 
-        input[type="text"]:focus {
-            border-color: var(--accent-mid);
-            box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.2);
-        }
+  .action-row:hover {
+    background: var(--vscode-welcomePage-tileHoverBackground, var(--vscode-list-hoverBackground));
+  }
 
-        input[type="text"]::placeholder {
-            color: rgba(166, 173, 200, 0.5);
-        }
+  .action-row:active { opacity: 0.8; }
 
-        button {
-            background: linear-gradient(135deg, var(--accent-mid), var(--accent-end));
-            color: #11111B;
-            border: none;
-            padding: 16px 32px;
-            font-size: 18px;
-            font-weight: 600;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            box-shadow: 0 4px 15px rgba(203, 166, 247, 0.3);
-            width: 100%;
-            max-width: 400px;
-        }
+  .action-icon-wrap {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--vscode-icon-foreground, var(--vscode-descriptionForeground));
+  }
 
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(203, 166, 247, 0.4);
-            filter: brightness(1.1);
-        }
+  .action-text { flex: 1; }
 
-        button:active {
-            transform: translateY(1px);
-        }
+  .action-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--vscode-foreground);
+    margin-bottom: 2px;
+  }
 
-        /* Twinkling stars effect */
-        .star {
-            position: absolute;
-            background: white;
-            border-radius: 50%;
-            animation: twinkle infinite ease-in-out;
-            opacity: 0;
-        }
+  .action-desc {
+    font-size: 11.5px;
+    color: var(--vscode-descriptionForeground);
+  }
 
-        @keyframes twinkle {
-            0% { opacity: 0; transform: scale(0.5); }
-            50% { opacity: 0.8; transform: scale(1); box-shadow: 0 0 10px white; }
-            100% { opacity: 0; transform: scale(0.5); }
-        }
-    </style>
+  .action-shortcut {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--vscode-keybindingLabel-background, rgba(255,255,255,0.08));
+    border: 1px solid var(--vscode-keybindingLabel-border, rgba(255,255,255,0.15));
+    border-radius: 5px;
+    padding: 2px 7px;
+    font-size: 11px;
+    color: var(--vscode-keybindingLabel-foreground, var(--vscode-descriptionForeground));
+    font-family: var(--vscode-font-family);
+    min-width: 22px;
+  }
+
+  /* ── Left column bottom: search ── */
+  .left-col {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .actions-list { flex: 1; }
+
+  .search-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    background: var(--vscode-input-background, rgba(255,255,255,0.05));
+    border: 1px solid var(--vscode-input-border, rgba(255,255,255,0.1));
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color 0.1s;
+    margin-top: 20px;
+  }
+
+  .search-bar:hover {
+    border-color: var(--vscode-focusBorder, rgba(255,255,255,0.2));
+  }
+
+  .search-icon { color: var(--vscode-descriptionForeground); flex-shrink: 0; }
+
+  .search-text {
+    flex: 1;
+    font-size: 13px;
+    color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
+  }
+
+  /* ── Recent projects ── */
+  .right-col { display: flex; flex-direction: column; overflow: hidden; }
+
+  .recent-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .view-all {
+    font-size: 12px;
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .view-all:hover { text-decoration: underline; }
+
+  .recent-list { flex: 1; overflow: hidden; }
+
+  .recent-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.1s;
+    border-bottom: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.05));
+  }
+
+  .recent-row:last-child { border-bottom: none; }
+  .recent-row:hover { background: var(--vscode-list-hoverBackground); }
+  .recent-row:hover .recent-name { color: var(--vscode-textLink-foreground); }
+
+  .recent-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--vscode-sideBar-background, rgba(255,255,255,0.06));
+    border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.08));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    flex-shrink: 0;
+  }
+
+  .recent-info { flex: 1; min-width: 0; }
+
+  .recent-name {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--vscode-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 0.1s;
+    margin-bottom: 2px;
+  }
+
+  .recent-path {
+    font-size: 11.5px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .show-more {
+    padding: 14px 8px;
+    font-size: 12.5px;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    text-align: center;
+  }
+  .show-more:hover { color: var(--vscode-foreground); }
+  .show-more-dots { margin-right: 6px; letter-spacing: 2px; }
+</style>
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <div class="logo-container">
-                <svg class="logo-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                        <linearGradient id="moonGrad" x1="20%" y1="0%" x2="80%" y2="100%">
-                            <stop offset="0%" stop-color="#74C7EC" />
-                            <stop offset="50%" stop-color="#89B4FA" />
-                            <stop offset="100%" stop-color="#CBA6F7" />
-                        </linearGradient>
-                        <filter id="glow">
-                            <feGaussianBlur stdDeviation="3" result="blur" />
-                            <feMerge>
-                                <feMergeNode in="blur" />
-                                <feMergeNode in="SourceGraphic" />
-                            </feMerge>
-                        </filter>
-                    </defs>
-                    <path d="M 60 20 A 30 30 0 1 0 80 75 A 35 35 0 1 1 60 20 Z" fill="url(#moonGrad)" filter="url(#glow)"/>
-                </svg>
-                <h1>Welcome to LunaIDE</h1>
-            </div>
-            
-            <p>Start your next masterpiece with LunaIDE.</p>
 
-            <div class="input-group">
-                <input type="text" id="projectName" placeholder="My Awesome Game" autocomplete="off" spellcheck="false" />
-                <button id="createBtn">Create New Project</button>
-            </div>
+  <!-- Header -->
+  <div class="header">
+    <div class="app-icon">
+      <svg width="38" height="38" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="mg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#74C7EC"/>
+            <stop offset="100%" stop-color="#B4A7D6"/>
+          </linearGradient>
+        </defs>
+        <path d="M 60 20 A 30 30 0 1 0 80 75 A 35 35 0 1 1 60 20 Z" fill="url(#mg)"/>
+      </svg>
+    </div>
+    <div class="header-text">
+      <h1>LunaIDE</h1>
+      <p>Roblox Development Environment</p>
+    </div>
+  </div>
 
-            <!-- Decorative stars -->
-            <div class="star" style="top: 20%; left: 10%; width: 3px; height: 3px; animation-duration: 3s; animation-delay: 0s;"></div>
-            <div class="star" style="top: 15%; right: 15%; width: 4px; height: 4px; animation-duration: 4s; animation-delay: 1s;"></div>
-            <div class="star" style="bottom: 25%; left: 15%; width: 2px; height: 2px; animation-duration: 2.5s; animation-delay: 2s;"></div>
+  <!-- Two-column body -->
+  <div class="body">
+
+    <!-- Left: Start actions -->
+    <div class="left-col">
+      <div class="section-label">Start</div>
+      <div class="actions-list">
+
+        <div class="action-row" onclick="newProject()">
+          <div class="action-icon-wrap">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
+            </svg>
+          </div>
+          <div class="action-text">
+            <div class="action-title">New Project</div>
+            <div class="action-desc">Create a new Roblox game</div>
+          </div>
+          <div class="action-shortcut">
+            <span class="kbd">⌘</span><span class="kbd">N</span>
+          </div>
         </div>
+
+        <div class="action-row" onclick="openProject()">
+          <div class="action-icon-wrap">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <div class="action-text">
+            <div class="action-title">Open Folder</div>
+            <div class="action-desc">Navigate to project</div>
+          </div>
+          <div class="action-shortcut">
+            <span class="kbd">⌘</span><span class="kbd">O</span>
+          </div>
+        </div>
+
+        <div class="action-row" onclick="cloneRepo()">
+          <div class="action-icon-wrap">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+              <path d="M6 9v6M15.7 7.3A6 6 0 0 1 18 15"/>
+            </svg>
+          </div>
+          <div class="action-text">
+            <div class="action-title">Clone Repository</div>
+            <div class="action-desc">Get from GitHub</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Search bar -->
+      <div class="search-bar" onclick="openSearch()">
+        <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span class="search-text">Search files, commands, or help...</span>
+        <div class="action-shortcut">
+          <span class="kbd">⌘</span><span class="kbd">K</span>
+        </div>
+      </div>
     </div>
 
-    <script>
-        const vscode = acquireVsCodeApi();
-        const createBtn = document.getElementById('createBtn');
-        const projectNameInput = document.getElementById('projectName');
+    <!-- Divider -->
+    <div class="divider"></div>
 
-        function submitProject() {
-            const name = projectNameInput.value.trim() || 'My_LunaIDE_Project';
-            vscode.postMessage({
-                command: 'createProject',
-                projectName: name
-            });
-        }
+    <!-- Right: Recent projects -->
+    <div class="right-col">
+      <div class="recent-header">
+        <span class="section-label" style="margin-bottom:0">Recent</span>
+        <span class="view-all" onclick="viewAll()">View All</span>
+      </div>
+      <div class="recent-list">
+        ${recentRows}
+      </div>
+      ${showMoreBtn}
+    </div>
 
-        createBtn.addEventListener('click', submitProject);
-        
-        projectNameInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                submitProject();
-            }
-        });
+  </div>
 
-        // Focus input on load
-        setTimeout(() => projectNameInput.focus(), 100);
-    </script>
+<script>
+  const vscode = acquireVsCodeApi();
+  function newProject() {
+    const name = prompt('Project name:', 'MyRobloxGame');
+    if (name?.trim()) vscode.postMessage({ command: 'createProject', projectName: name.trim() });
+  }
+  function openProject() { vscode.postMessage({ command: 'openProject' }); }
+  function cloneRepo() { vscode.postMessage({ command: 'cloneRepo' }); }
+  function openSearch() { vscode.postMessage({ command: 'openSearch' }); }
+  function openRecent(fullPath) { vscode.postMessage({ command: 'openRecent', path: fullPath }); }
+  function viewAll() { vscode.postMessage({ command: 'viewAllRecent' }); }
+
+  // ⌘N / ⌘O keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    if (e.metaKey && e.key === 'n') { e.preventDefault(); newProject(); }
+    if (e.metaKey && e.key === 'o') { e.preventDefault(); openProject(); }
+    if (e.metaKey && e.key === 'k') { e.preventDefault(); openSearch(); }
+  });
+</script>
 </body>
 </html>`;
     }
+}
+
+function escapeHtml(str: string): string {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }

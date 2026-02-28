@@ -1,3 +1,6 @@
+import * as os from 'os';
+import * as nodePath from 'path';
+
 /** Default port for Rojo serve */
 export const ROJO_DEFAULT_PORT = 34872;
 
@@ -59,8 +62,19 @@ export const MCP_SERVER_NAME = 'roblox-ide-mcp';
 /** MCP server version */
 export const MCP_SERVER_VERSION = '0.1.0';
 
-/** Bridge port file path (relative to workspace) */
-export const BRIDGE_PORT_FILE = '.lunaide/.port';
+/**
+ * Returns the path to the bridge port file for a given workspace.
+ * Stored in the OS temp dir so it never appears inside the user's project.
+ */
+export function getBridgePortFile(workspacePath: string): string {
+  // Simple djb2 hash of the workspace path
+  let hash = 5381;
+  for (let i = 0; i < workspacePath.length; i++) {
+    hash = (((hash << 5) + hash) + workspacePath.charCodeAt(i)) & 0xffffffff;
+  }
+  const hashStr = Math.abs(hash).toString(16).padStart(8, '0').slice(0, 8);
+  return nodePath.join(os.tmpdir(), `lunaide-bridge-${hashStr}.port`);
+}
 
 /** Default max session snapshots */
 export const MAX_SNAPSHOTS = 100;

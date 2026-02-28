@@ -28,3 +28,6 @@ npm-debug.log*
 
 # Build artifacts
 *.tsbuildinfo
+
+# Downloaded binaries (fetched by prepare.sh)
+packages/core/assets/bin/

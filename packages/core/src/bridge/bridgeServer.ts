@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
-import { BRIDGE_PORT_FILE, ROBLOXIDE_DIR, INSTRUCTIONS_FILE, LUAU_EXTENSIONS, ROJO_PROJECT_FILE } from '@roblox-ide/shared';
+import { getBridgePortFile, INSTRUCTIONS_FILE, LUAU_EXTENSIONS, ROJO_PROJECT_FILE } from '@roblox-ide/shared';
 import { SessionManager } from '../sessions/sessionManager.js';
 import { LuauClient } from '../luau/luauClient.js';
 import { RojoManager } from '../rojo/rojoManager.js';
@@ -24,6 +24,7 @@ export class BridgeServer implements vscode.Disposable {
     private port: number = 0;
     private outputChannel: vscode.OutputChannel;
     private workspaceRoot: string;
+    private statusBarItem: vscode.StatusBarItem | null = null;
 
     constructor(
         workspaceRoot: string,
@@ -49,6 +50,7 @@ export class BridgeServer implements vscode.Disposable {
                 if (addr && typeof addr === 'object') {
                     this.port = addr.port;
                     this.writePortFile();
+                    this.showStatusBar();
                     this.log(`Bridge server listening on port ${this.port}`);
                     resolve();
                 } else {
@@ -532,16 +534,22 @@ export class BridgeServer implements vscode.Disposable {
         return path.join(this.workspaceRoot, filePath);
     }
 
-    private writePortFile(): void {
-        const portDir = path.join(this.workspaceRoot, ROBLOXIDE_DIR);
-        if (!fs.existsSync(portDir)) {
-            fs.mkdirSync(portDir, { recursive: true });
+    private showStatusBar(): void {
+        if (!this.statusBarItem) {
+            // Priority 99 places it right next to the Rojo item (priority 100)
+            this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
         }
-        fs.writeFileSync(path.join(this.workspaceRoot, BRIDGE_PORT_FILE), String(this.port), 'utf-8');
+        this.statusBarItem.text = '$(radio-tower) Bridge';
+        this.statusBarItem.tooltip = `LunaIDE Bridge Server — port ${this.port}`;
+        this.statusBarItem.show();
+    }
+
+    private writePortFile(): void {
+        fs.writeFileSync(getBridgePortFile(this.workspaceRoot), String(this.port), 'utf-8');
     }
 
     private removePortFile(): void {
-        const portFilePath = path.join(this.workspaceRoot, BRIDGE_PORT_FILE);
+        const portFilePath = getBridgePortFile(this.workspaceRoot);
         if (fs.existsSync(portFilePath)) {
             fs.unlinkSync(portFilePath);
         }
@@ -574,6 +582,7 @@ export class BridgeServer implements vscode.Disposable {
             this.server.close();
             this.server = null;
         }
+        this.statusBarItem?.dispose();
         this.outputChannel.dispose();
     }
 }

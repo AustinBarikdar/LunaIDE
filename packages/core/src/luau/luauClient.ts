@@ -156,6 +156,13 @@ export class LuauClient implements vscode.Disposable {
 
     const binaryName = process.platform === 'win32' ? 'luau-lsp.exe' : 'luau-lsp';
 
+    // Check bundled binary first (downloaded by prepare.sh)
+    const bundledBinary = path.join(this.context.extensionPath, 'assets', 'bin', binaryName);
+    if (fs.existsSync(bundledBinary)) {
+      this.log(`Using bundled luau-lsp: ${bundledBinary}`);
+      return bundledBinary;
+    }
+
     // Check common locations
     const searchPaths = [
       // Aftman
