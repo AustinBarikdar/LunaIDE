@@ -13,6 +13,7 @@ import { RojoManager } from '../rojo/rojoManager.js';
 export class LuauClient implements vscode.Disposable {
   private client: LanguageClient | null = null;
   private outputChannel: vscode.OutputChannel;
+  private statusBarItem: vscode.StatusBarItem;
   private diagnosticsCache: Map<string, LuauDiagnostic[]> = new Map();
   private disposables: vscode.Disposable[] = [];
 
@@ -21,7 +22,8 @@ export class LuauClient implements vscode.Disposable {
     private rojoManager: RojoManager,
   ) {
     this.outputChannel = vscode.window.createOutputChannel('LunaIDE: Luau LSP');
-    this.disposables.push(this.outputChannel);
+    this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
+    this.disposables.push(this.outputChannel, this.statusBarItem);
   }
 
   async start(): Promise<void> {
@@ -33,9 +35,10 @@ export class LuauClient implements vscode.Disposable {
 
     const binary = await this.findLuauLspBinary();
     if (!binary) {
-      vscode.window.showErrorMessage(
-        'LunaIDE: Could not find luau-lsp binary. Install luau-lsp or set robloxIde.luau.path in settings.'
-      );
+      this.log('luau-lsp binary not found. Install via aftman: roblox/luau-lsp');
+      this.statusBarItem.text = '$(warning) Luau';
+      this.statusBarItem.tooltip = 'luau-lsp not found — install it via aftman (roblox/luau-lsp) or set robloxIde.luau.path';
+      this.statusBarItem.show();
       return;
     }
 
@@ -85,6 +88,9 @@ export class LuauClient implements vscode.Disposable {
 
     await this.client.start();
     this.log('Luau LSP started.');
+    this.statusBarItem.text = '$(check) Luau';
+    this.statusBarItem.tooltip = 'Luau LSP running';
+    this.statusBarItem.show();
   }
 
   async stop(): Promise<void> {
@@ -121,10 +127,13 @@ export class LuauClient implements vscode.Disposable {
   private buildArgs(): string[] {
     const args = ['lsp'];
 
-    // Add Roblox type definitions
-    args.push('--definitions=roblox');
+    // Add bundled Roblox type definitions if present
+    const defsPath = path.join(this.context.extensionPath, 'assets', 'globalTypes.d.luau');
+    if (fs.existsSync(defsPath)) {
+      args.push(`--definitions=${defsPath}`);
+    }
 
-    // Add sourcemap if available
+    // Add sourcemap only if it already exists on disk
     const sourcemapPath = this.rojoManager.getSourcemapPath();
     if (sourcemapPath) {
       args.push(`--sourcemap=${sourcemapPath}`);
@@ -134,11 +143,12 @@ export class LuauClient implements vscode.Disposable {
   }
 
   private getInitOptions(): Record<string, unknown> {
+    const sourcemapPath = this.rojoManager.getSourcemapPath();
     return {
       'platform': { 'type': 'roblox' },
       'sourcemap': {
-        'enabled': true,
-        'autogenerate': false, // We handle this via Rojo Manager
+        'enabled': sourcemapPath !== undefined,
+        'autogenerate': false, // Rojo Manager handles generation
       },
     };
   }

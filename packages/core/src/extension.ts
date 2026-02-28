@@ -57,9 +57,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Restore tabs for this project workspace
     void vscode.workspace.getConfiguration().update('workbench.editor.showTabs', 'multiple', vscode.ConfigurationTarget.Workspace);
 
+    // Hide generated/internal files from the explorer for this workspace
+    const filesExclude = vscode.workspace.getConfiguration('files').get<Record<string, boolean>>('exclude', {});
+    if (!filesExclude['**/sourcemap.json']) {
+      void vscode.workspace.getConfiguration('files').update(
+        'exclude',
+        { ...filesExclude, '**/sourcemap.json': true, '**/.lunaide': true, '**/.vscode': true },
+        vscode.ConfigurationTarget.Workspace
+      );
+    }
+
     // Initialize Rojo Manager
     rojoManager = new RojoManager(context);
     context.subscriptions.push(rojoManager);
+
+    // Auto-start Rojo for this project
+    void rojoManager.start();
 
     // Initialize Luau LSP Client
     luauClient = new LuauClient(context, rojoManager);
@@ -172,19 +185,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })
     );
 
-    // Auto-start Rojo if configured
-    const autoStart = vscode.workspace.getConfiguration('robloxIde.rojo').get<boolean>('autoStart', true);
-    if (autoStart) {
-      setTimeout(async () => {
-        await rojoManager.start();
-
-        // Wait for Rojo to generate sourcemap before starting LSP
-        setTimeout(async () => {
-          await luauClient.start();
-        }, 2000);
-      }, 1000);
-    }
-
     // Start Bridge Server
     try {
       await bridgeServer.start();
@@ -272,45 +272,107 @@ function registerWelcomeCommands(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('lunaide.createProject', async (projectName: string) => {
+    vscode.commands.registerCommand('lunaide.createProject', async () => {
+      // Step 1: Project name
+      const projectName = await vscode.window.showInputBox({
+        title: 'New Roblox Project',
+        prompt: 'Project name',
+        value: 'MyRobloxGame',
+        validateInput: (v) => v.trim() ? undefined : 'Name cannot be empty',
+      });
+      if (!projectName?.trim()) return;
+
+      // Step 2: Location
       const parentFolderUris = await vscode.window.showOpenDialog({
         canSelectFiles: false,
         canSelectFolders: true,
         canSelectMany: false,
-        openLabel: 'Select Parent Folder for Project'
+        openLabel: 'Create Project Here',
+        title: 'Choose project location',
       });
+      if (!parentFolderUris || parentFolderUris.length === 0) return;
 
-      if (!parentFolderUris || parentFolderUris.length === 0) {
-        return;
-      }
+      // Step 3: Rojo setup
+      const rojoChoice = await vscode.window.showQuickPick(
+        [
+          {
+            label: '$(check) Full Rojo setup',
+            description: 'Creates src/server, src/client, src/shared with default.project.json',
+            value: 'rojo',
+          },
+          {
+            label: '$(circle-slash) Minimal — no Rojo',
+            description: 'Empty folder with a bare default.project.json',
+            value: 'minimal',
+          },
+        ],
+        { title: 'New Roblox Project', placeHolder: 'Initialize Rojo project structure?' }
+      );
+      if (!rojoChoice) return;
 
       const parentUri = parentFolderUris[0];
-      const projectUri = vscode.Uri.joinPath(parentUri, projectName);
+      const projectUri = vscode.Uri.joinPath(parentUri, projectName.trim());
 
       try {
         await vscode.workspace.fs.createDirectory(projectUri);
 
-        // Create default.project.json
-        const defaultProjectJson = {
-          name: projectName,
-          tree: {
-            $className: "DataModel",
-            ReplicatedStorage: {
-              $className: "ReplicatedStorage"
+        if (rojoChoice.value === 'rojo') {
+          // Full Rojo structure
+          const src = (p: string) => vscode.Uri.joinPath(projectUri, p);
+          await vscode.workspace.fs.createDirectory(src('src/server'));
+          await vscode.workspace.fs.createDirectory(src('src/client'));
+          await vscode.workspace.fs.createDirectory(src('src/shared'));
+
+          // Stub scripts
+          const serverScript = Buffer.from('-- Server entry point\n');
+          const clientScript = Buffer.from('-- Client entry point\n');
+          await vscode.workspace.fs.writeFile(src('src/server/init.server.luau'), serverScript);
+          await vscode.workspace.fs.writeFile(src('src/client/init.client.luau'), clientScript);
+
+          const rojoConfig = {
+            name: projectName.trim(),
+            tree: {
+              $className: 'DataModel',
+              ServerScriptService: {
+                $className: 'ServerScriptService',
+                Server: { $path: 'src/server' },
+              },
+              ReplicatedStorage: {
+                $className: 'ReplicatedStorage',
+                Shared: { $path: 'src/shared' },
+              },
+              StarterPlayer: {
+                $className: 'StarterPlayer',
+                StarterPlayerScripts: {
+                  $className: 'StarterPlayerScripts',
+                  Client: { $path: 'src/client' },
+                },
+              },
             },
-            ServerScriptService: {
-              $className: "ServerScriptService"
-            }
-          }
-        };
+          };
+          await vscode.workspace.fs.writeFile(
+            src('default.project.json'),
+            Buffer.from(JSON.stringify(rojoConfig, null, 2))
+          );
 
-        const projectFileUri = vscode.Uri.joinPath(projectUri, 'default.project.json');
-        await vscode.workspace.fs.writeFile(
-          projectFileUri,
-          Buffer.from(JSON.stringify(defaultProjectJson, null, 2))
-        );
+          // aftman.toml so the aftman shim resolves rojo for this project
+          const aftmanToml =
+            '# Aftman toolchain — managed by LunaIDE\n' +
+            '[tools]\n' +
+            'rojo = "rojo-rbx/rojo@7"\n';
+          await vscode.workspace.fs.writeFile(src('aftman.toml'), Buffer.from(aftmanToml));
+        } else {
+          // Minimal
+          const minimalConfig = {
+            name: projectName.trim(),
+            tree: { $className: 'DataModel' },
+          };
+          await vscode.workspace.fs.writeFile(
+            vscode.Uri.joinPath(projectUri, 'default.project.json'),
+            Buffer.from(JSON.stringify(minimalConfig, null, 2))
+          );
+        }
 
-        // Open the new project in the current window
         vscode.commands.executeCommand('vscode.openFolder', projectUri, false);
       } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to create project: ${err.message}`);

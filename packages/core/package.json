@@ -35,15 +35,18 @@
     "commands": [
       {
         "command": "robloxIde.rojo.start",
-        "title": "LunaIDE: Start Rojo"
+        "title": "LunaIDE: Start Sync",
+        "icon": "$(play)"
       },
       {
         "command": "robloxIde.rojo.stop",
-        "title": "LunaIDE: Stop Rojo"
+        "title": "LunaIDE: Stop Sync",
+        "icon": "$(debug-stop)"
       },
       {
         "command": "robloxIde.rojo.restart",
-        "title": "LunaIDE: Restart Rojo"
+        "title": "LunaIDE: Restart Sync",
+        "icon": "$(refresh)"
       },
       {
         "command": "robloxIde.luau.restart",
@@ -144,6 +147,10 @@
         "extensions": [
           ".luau"
         ],
+        "icon": {
+          "light": "./assets/luau-icon.svg",
+          "dark": "./assets/luau-icon.svg"
+        },
         "configuration": "./language-configuration.json"
       }
     ],
@@ -169,6 +176,25 @@
         {
           "id": "robloxIde.studioInstances",
           "name": "Studio Instances"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "robloxIde.rojo.start",
+          "when": "view == robloxIde.explorer && !robloxIde.syncRunning",
+          "group": "navigation"
+        },
+        {
+          "command": "robloxIde.rojo.stop",
+          "when": "view == robloxIde.explorer && robloxIde.syncRunning",
+          "group": "navigation"
+        },
+        {
+          "command": "robloxIde.rojo.restart",
+          "when": "view == robloxIde.explorer && robloxIde.syncRunning",
+          "group": "navigation"
         }
       ]
     }

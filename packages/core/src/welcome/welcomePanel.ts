@@ -39,7 +39,7 @@ export class WelcomePanel {
                         return;
                     }
                     case 'createProject':
-                        vscode.commands.executeCommand('lunaide.createProject', message.projectName);
+                        vscode.commands.executeCommand('lunaide.createProject');
                         return;
                     case 'openRecent':
                         vscode.commands.executeCommand(
@@ -508,8 +508,7 @@ export class WelcomePanel {
 <script>
   const vscode = acquireVsCodeApi();
   function newProject() {
-    const name = prompt('Project name:', 'MyRobloxGame');
-    if (name?.trim()) vscode.postMessage({ command: 'createProject', projectName: name.trim() });
+    vscode.postMessage({ command: 'createProject' });
   }
   function openProject() { vscode.postMessage({ command: 'openProject' }); }
   function cloneRepo() { vscode.postMessage({ command: 'cloneRepo' }); }

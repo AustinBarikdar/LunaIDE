@@ -140,6 +140,13 @@ cp -r "$ROOT_DIR/packages/core/dist" "$CORE_EXT_DIR/"
 cp "$ROOT_DIR/packages/core/package.json" "$CORE_EXT_DIR/"
 cp -r "$ROOT_DIR/packages/core/assets" "$CORE_EXT_DIR/"
 
+# Download Roblox global type definitions for Luau LSP
+echo "Downloading Roblox globalTypes.d.luau..."
+curl -sL "https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/main/scripts/globalTypes.d.luau" \
+  -o "$CORE_EXT_DIR/assets/globalTypes.d.luau" \
+  && echo "globalTypes.d.luau downloaded." \
+  || echo "Warning: Could not download globalTypes.d.luau. Extended Roblox types will not be available."
+
 cp -r "$ROOT_DIR/packages/mcp-server/dist" "$MCP_EXT_DIR/"
 cp "$ROOT_DIR/packages/mcp-server/package.json" "$MCP_EXT_DIR/"
 
@@ -154,7 +161,9 @@ cat << 'EOF' > "$APP_DIR/Contents/Resources/app/product/defaultSettings.json"
   "update.mode": "none",
   "workbench.accounts.visibility": "hidden",
   "files.exclude": {
-    "**/.lunaide/.port": true
+    "**/.lunaide/.port": true,
+    "**/sourcemap.json": true,
+    "**/.git": true
   }
 }
 EOF

@@ -36,9 +36,13 @@ export class RojoManager implements vscode.Disposable {
     const rojoBinary = await this.findRojoBinary();
     if (!rojoBinary) {
       this.setState('error');
-      vscode.window.showErrorMessage(
-        'LunaIDE: Could not find rojo binary. Install rojo or set robloxIde.rojo.path in settings.'
-      );
+      this.log('rojo binary not found. Install via aftman (rojo-rbx/rojo) or set robloxIde.rojo.path.');
+      void vscode.window.showErrorMessage(
+        'Rojo not found. Install via aftman (rojo-rbx/rojo) or set robloxIde.rojo.path.',
+        'Open Output'
+      ).then((choice) => {
+        if (choice === 'Open Output') this.outputChannel.show();
+      });
       return;
     }
 
@@ -57,6 +61,9 @@ export class RojoManager implements vscode.Disposable {
     this.setState('connecting');
     this.log(`Starting Rojo with binary: ${rojoBinary}`);
 
+    // Kill any stale process holding our port (e.g. from a previous extension host run)
+    await this.killProcessOnPort(this.getPort());
+
     // Start rojo serve
     await this.startServe(rojoBinary, workspaceFolder);
 
@@ -65,10 +72,11 @@ export class RojoManager implements vscode.Disposable {
   }
 
   async stop(): Promise<void> {
-    this.killProcess(this.serveProcess, 'serve');
+    await Promise.all([
+      this.killProcess(this.serveProcess, 'serve'),
+      this.killProcess(this.sourcemapProcess, 'sourcemap'),
+    ]);
     this.serveProcess = null;
-
-    this.killProcess(this.sourcemapProcess, 'sourcemap');
     this.sourcemapProcess = null;
 
     this.setState('disconnected');
@@ -169,14 +177,29 @@ export class RojoManager implements vscode.Disposable {
     // Try to find rojo in PATH
     const binaryName = process.platform === 'win32' ? 'rojo.exe' : 'rojo';
 
-    // Check common locations
+    const home = process.env.HOME || '';
+
+    // Check aftman tool storage directly (bypasses the shim's aftman.toml requirement)
+    const aftmanStorage = path.join(home, '.aftman', 'tool-storage', 'rojo-rbx', 'rojo');
+    if (fs.existsSync(aftmanStorage)) {
+      try {
+        const versions = fs.readdirSync(aftmanStorage).sort().reverse();
+        for (const ver of versions) {
+          const bin = path.join(aftmanStorage, ver, binaryName);
+          if (fs.existsSync(bin)) {
+            this.log(`Found rojo via aftman tool storage: ${bin}`);
+            return bin;
+          }
+        }
+      } catch { /* continue */ }
+    }
+
+    // Check other common locations
     const searchPaths = [
-      // Aftman
-      path.join(process.env.HOME || '', '.aftman', 'bin', binaryName),
       // Foreman
-      path.join(process.env.HOME || '', '.foreman', 'bin', binaryName),
+      path.join(home, '.foreman', 'bin', binaryName),
       // Cargo
-      path.join(process.env.HOME || '', '.cargo', 'bin', binaryName),
+      path.join(home, '.cargo', 'bin', binaryName),
     ];
 
     for (const searchPath of searchPaths) {
@@ -198,9 +221,32 @@ export class RojoManager implements vscode.Disposable {
     return null;
   }
 
-  private killProcess(proc: ChildProcess | null, name: string): void {
-    if (proc && !proc.killed) {
+  private async killProcessOnPort(port: number): Promise<void> {
+    try {
+      const { execSync } = await import('child_process');
+      const pids = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf-8' }).trim();
+      if (!pids) return;
+      for (const pid of pids.split('\n')) {
+        const p = pid.trim();
+        if (!p) continue;
+        this.log(`Killing stale process on port ${port} (PID: ${p})`);
+        try { execSync(`kill -TERM ${p}`); } catch { /* already dead */ }
+      }
+      // Give the OS a moment to release the port
+      await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    } catch {
+      // lsof not available or nothing found — continue
+    }
+  }
+
+  private killProcess(proc: ChildProcess | null, name: string): Promise<void> {
+    return new Promise((resolve) => {
+      if (!proc || proc.exitCode !== null || proc.killed) {
+        resolve();
+        return;
+      }
       this.log(`Killing ${name} process (PID: ${proc.pid})`);
+      proc.once('exit', () => resolve());
       proc.kill('SIGTERM');
       // Force kill after 3 seconds if still alive
       setTimeout(() => {
@@ -208,12 +254,14 @@ export class RojoManager implements vscode.Disposable {
           proc.kill('SIGKILL');
         }
       }, 3000);
-    }
+    });
   }
 
   private setState(state: RojoConnectionState): void {
     this.state = state;
-    this.status.update(state);
+    const port = state === 'connected' || state === 'connecting' ? this.getPort() : undefined;
+    this.status.update(state, port);
+    void vscode.commands.executeCommand('setContext', 'robloxIde.syncRunning', state === 'connected' || state === 'connecting');
   }
 
   private onProjectFileChanged(): void {
