@@ -127,7 +127,7 @@ export class WelcomePanel {
         const recentRows = recentProjects.map((p) => {
             const letter = escapeHtml(p.name.charAt(0).toUpperCase());
             return `
-            <div class="recent-row" onclick="openRecent(${JSON.stringify(p.fullPath)})">
+            <div class="recent-row" onclick="openRecent(${escapeHtml(JSON.stringify(p.fullPath))})">
                 <div class="recent-avatar">${letter}</div>
                 <div class="recent-info">
                     <span class="recent-name">${escapeHtml(p.name)}</span>

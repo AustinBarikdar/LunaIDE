@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { RojoManager } from './rojo/rojoManager.js';
 import { LuauClient } from './luau/luauClient.js';
 import { SessionManager } from './sessions/sessionManager.js';
@@ -11,6 +13,8 @@ import { ExplorerTreeView } from './explorer/explorerTreeView.js';
 import { PropertyInspectorPanel } from './explorer/propertyInspectorPanel.js';
 import { registerScriptTemplates } from './templates/scriptTemplates.js';
 import { WelcomePanel } from './welcome/welcomePanel.js';
+import { SetupPanel } from './setup/setupPanel.js';
+import { AgentConnector, AGENT_IDS, AGENT_LABELS } from './mcp/agentConnector.js';
 
 let rojoManager: RojoManager;
 let luauClient: LuauClient;
@@ -24,6 +28,22 @@ let explorerTreeView: ExplorerTreeView;
 let propertyInspector: PropertyInspectorPanel;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // Unset CLAUDECODE so terminals inside LunaIDE don't inherit the parent
+  // Claude Code session's env var (which blocks nested launches).
+  // process.env covers child_process spawns; terminal.integrated.env covers
+  // the VS Code integrated terminal which uses Electron's env independently.
+  delete process.env['CLAUDECODE'];
+  const termPlatform = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux';
+  const termEnvCfg = vscode.workspace.getConfiguration('terminal.integrated.env');
+  const termEnvExisting = termEnvCfg.get<Record<string, string | null>>(termPlatform, {});
+  if (termEnvExisting['CLAUDECODE'] !== null) {
+    void termEnvCfg.update(
+      termPlatform,
+      { ...termEnvExisting, CLAUDECODE: null },
+      vscode.ConfigurationTarget.Global
+    );
+  }
+
   const outputChannel = vscode.window.createOutputChannel('LunaIDE');
   outputChannel.appendLine('LunaIDE is activating...');
 
@@ -42,9 +62,97 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Always register commands so the palette works
   registerWelcomeCommands(context);
 
+  // Register setup command (always available)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('lunaide.openSetup', () => {
+      void SetupPanel.createOrShow(context);
+    })
+  );
+
+  // ── AI Agent status bar + connect command ─────────────────────────────────
+  const agentStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
+  agentStatusBar.command = 'lunaide.connectAgent';
+  agentStatusBar.tooltip = 'Connect AI Agent to LunaIDE MCP';
+  context.subscriptions.push(agentStatusBar);
+
+  function refreshAgentStatusBar() {
+    const workspace = getWorkspaceRoot();
+    const configured = AGENT_IDS.find((id) => AgentConnector.isAgentConfigured(id, workspace));
+    if (configured) {
+      const shortName = AGENT_LABELS[configured].split(' ')[0];
+      agentStatusBar.text = `$(check) AI: ${shortName}`;
+      agentStatusBar.backgroundColor = undefined;
+    } else {
+      agentStatusBar.text = '$(plug) AI Agent';
+      agentStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    }
+    agentStatusBar.show();
+  }
+
+  refreshAgentStatusBar();
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('lunaide.connectAgent', async () => {
+      const workspace = getWorkspaceRoot();
+      type AgentQuickPickItem = vscode.QuickPickItem & { agentId?: string };
+
+      const items: AgentQuickPickItem[] = AGENT_IDS.map((id) => {
+        const configured = AgentConnector.isAgentConfigured(id, workspace);
+        const cfgPath = AgentConnector.agentConfigPath(id, workspace);
+        return {
+          label: `${configured ? '$(check)' : '$(plug)'} ${AGENT_LABELS[id]}`,
+          description: configured ? 'Configured' : undefined,
+          detail: cfgPath,
+          agentId: id,
+        };
+      });
+
+      items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+      items.push({ label: '$(settings-gear) Open Setup Panel' });
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select an AI agent to configure for LunaIDE MCP',
+        matchOnDetail: true,
+      });
+
+      if (!selected) return;
+
+      if (selected.agentId) {
+        try {
+          await AgentConnector.configureAgent(selected.agentId, context.extensionPath, workspace);
+          vscode.window.showInformationMessage(
+            `MCP server configured for ${AGENT_LABELS[selected.agentId as keyof typeof AGENT_LABELS]}. Restart it to connect.`
+          );
+          refreshAgentStatusBar();
+        } catch (err: any) {
+          vscode.window.showErrorMessage(`Failed to configure agent: ${err.message}`);
+        }
+      } else {
+        void SetupPanel.createOrShow(context);
+      }
+    })
+  );
+  // ── End AI Agent section ──────────────────────────────────────────────────
+
+  // First-run setup check
+  const setupDismissed = context.globalState.get<boolean>('lunaide.setupDismissed', false);
+  if (!setupDismissed) {
+    SetupPanel.checkSetup().then((hasIssues) => {
+      if (hasIssues) {
+        void vscode.window.showInformationMessage(
+          'LunaIDE setup is incomplete.',
+          'Open Setup'
+        ).then((choice) => {
+          if (choice === 'Open Setup') void SetupPanel.createOrShow(context);
+        });
+      }
+    });
+  }
+
   const workspaceFolder = getWorkspaceRoot();
-  const isRojoProject = workspaceFolder != null &&
-    require('fs').existsSync(require('path').join(workspaceFolder, 'default.project.json'));
+  const places = workspaceFolder != null ? detectPlaces(workspaceFolder) : [];
+  const isRojoProject = (workspaceFolder != null &&
+    fs.existsSync(path.join(workspaceFolder, 'default.project.json'))) || places.length > 0;
 
   if (!workspaceFolder) {
     outputChannel.appendLine('No folder open. Showing LunaIDE Welcome Screen.');
@@ -53,7 +161,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, 500);
   }
 
-  if (isRojoProject) {
+  // ── Always register tree views so the sidebar never shows "no data provider" ──
+
+  // Studio manager is always needed (studio instances view works without a project)
+  studioManager = new StudioManager();
+  context.subscriptions.push(studioManager);
+
+  // Studio instances view — shows connected Studio sessions
+  const studioInstancesEmitter = new vscode.EventEmitter<vscode.TreeItem | undefined>();
+  context.subscriptions.push(studioInstancesEmitter);
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('robloxIde.studioInstances', {
+      onDidChangeTreeData: studioInstancesEmitter.event,
+      getTreeItem: (item: vscode.TreeItem) => item,
+      getChildren: () => {
+        const studios = studioManager.getConnectedStudios();
+        if (studios.length === 0) return [];
+        return studios.map((s) => {
+          const item = new vscode.TreeItem(
+            s.placeName || `Studio ${s.studioId.slice(0, 8)}`,
+            vscode.TreeItemCollapsibleState.None
+          );
+          item.description = s.placeId ? `Place ${s.placeId}` : undefined;
+          item.iconPath = new vscode.ThemeIcon('vm-connect');
+          return item;
+        });
+      },
+    })
+  );
+
+  // Session history and explorer — register placeholder providers when no project is open
+  if (!isRojoProject) {
+    context.subscriptions.push(
+      vscode.window.registerTreeDataProvider('robloxIde.sessionHistory', {
+        getTreeItem: (item: vscode.TreeItem) => item,
+        getChildren: () => [],
+      }),
+      vscode.window.registerTreeDataProvider('robloxIde.explorer', {
+        getTreeItem: (item: vscode.TreeItem) => item,
+        getChildren: () => [],
+      })
+    );
+  }
+
+  if (isRojoProject && workspaceFolder != null) {
     // Restore tabs for this project workspace
     void vscode.workspace.getConfiguration().update('workbench.editor.showTabs', 'multiple', vscode.ConfigurationTarget.Workspace);
 
@@ -71,12 +222,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     rojoManager = new RojoManager(context);
     context.subscriptions.push(rojoManager);
 
+    // Multi-place support
+    let placeStatusBar: vscode.StatusBarItem | undefined;
+
+    if (places.length > 0) {
+      let activePlace = context.workspaceState.get<string>('lunaide.activePlace');
+      if (!activePlace || !places.includes(activePlace)) {
+        activePlace = await vscode.window.showQuickPick(places, {
+          placeHolder: 'Select a place to open',
+          title: 'This project has multiple places',
+        }) ?? places[0];
+      }
+      await context.workspaceState.update('lunaide.activePlace', activePlace);
+      rojoManager.setPlaceDir(path.join(workspaceFolder!, activePlace));
+
+      placeStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
+      placeStatusBar.command = 'lunaide.switchPlace';
+      placeStatusBar.text = `$(folder) ${activePlace}`;
+      placeStatusBar.tooltip = 'Switch place';
+      placeStatusBar.show();
+      context.subscriptions.push(placeStatusBar);
+    }
+
     // Auto-start Rojo for this project
     void rojoManager.start();
 
     // Initialize Luau LSP Client
-    luauClient = new LuauClient(context, rojoManager);
+    luauClient = new LuauClient(context);
     context.subscriptions.push(luauClient);
+    void luauClient.start();
 
     // Initialize Session Manager
     sessionManager = new SessionManager(workspaceFolder);
@@ -86,10 +260,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessionTreeView = new SessionTreeView(sessionManager.getStore());
     vscode.window.registerTreeDataProvider('robloxIde.sessionHistory', sessionTreeView);
     context.subscriptions.push(sessionTreeView);
-
-    // Initialize Studio Manager
-    studioManager = new StudioManager();
-    context.subscriptions.push(studioManager);
 
     // Initialize Studio HTTP Server (accepts Studio plugin connections)
     studioHttpServer = new StudioHttpServer(studioManager);
@@ -118,6 +288,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Register commands
     context.subscriptions.push(
+      // Place switching
+      vscode.commands.registerCommand('lunaide.switchPlace', async () => {
+        const allPlaces = detectPlaces(workspaceFolder!);
+        if (allPlaces.length === 0) return;
+        const selected = await vscode.window.showQuickPick(allPlaces, {
+          placeHolder: 'Select a place to work on',
+        });
+        if (!selected) return;
+        await context.workspaceState.update('lunaide.activePlace', selected);
+        rojoManager.setPlaceDir(path.join(workspaceFolder!, selected));
+        await rojoManager.restart();
+        if (placeStatusBar) placeStatusBar.text = `$(folder) ${selected}`;
+      }),
+
       // Rojo commands
       vscode.commands.registerCommand('robloxIde.rojo.start', () => rojoManager.start()),
       vscode.commands.registerCommand('robloxIde.rojo.stop', () => rojoManager.stop()),
@@ -243,6 +427,17 @@ async function openInstructions(): Promise<void> {
   await vscode.window.showTextDocument(doc);
 }
 
+function detectPlaces(workspaceFolder: string): string[] {
+  if (fs.existsSync(path.join(workspaceFolder, 'default.project.json'))) return [];
+  try {
+    return fs.readdirSync(workspaceFolder, { withFileTypes: true })
+      .filter(e => e.isDirectory() &&
+        fs.existsSync(path.join(workspaceFolder, e.name, 'default.project.json')))
+      .map(e => e.name)
+      .sort();
+  } catch { return []; }
+}
+
 function getWorkspaceRoot(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) return undefined;
@@ -305,6 +500,11 @@ function registerWelcomeCommands(context: vscode.ExtensionContext) {
             description: 'Empty folder with a bare default.project.json',
             value: 'minimal',
           },
+          {
+            label: '$(multiple-windows) Multi-place Game',
+            description: 'Multiple place folders (e.g. Main, Lobby) each with their own Rojo setup',
+            value: 'multiplace',
+          },
         ],
         { title: 'New Roblox Project', placeHolder: 'Initialize Rojo project structure?' }
       );
@@ -361,6 +561,68 @@ function registerWelcomeCommands(context: vscode.ExtensionContext) {
             '[tools]\n' +
             'rojo = "rojo-rbx/rojo@7"\n';
           await vscode.workspace.fs.writeFile(src('aftman.toml'), Buffer.from(aftmanToml));
+        } else if (rojoChoice.value === 'multiplace') {
+          // Multi-place: prompt for place names
+          const placeNamesInput = await vscode.window.showInputBox({
+            title: 'Multi-place Game',
+            prompt: 'Place names (comma-separated)',
+            value: 'Main, Lobby',
+            validateInput: (v) => v.trim() ? undefined : 'Enter at least one place name',
+          });
+          if (!placeNamesInput) return;
+          const placeNames = placeNamesInput.split(',').map((s) => s.trim()).filter(Boolean);
+          if (placeNames.length === 0) return;
+
+          const makePlaceConfig = (name: string) => ({
+            name,
+            tree: {
+              $className: 'DataModel',
+              ServerScriptService: {
+                $className: 'ServerScriptService',
+                Server: { $path: 'src/server' },
+              },
+              ReplicatedStorage: {
+                $className: 'ReplicatedStorage',
+                Shared: { $path: 'src/shared' },
+              },
+              StarterPlayer: {
+                $className: 'StarterPlayer',
+                StarterPlayerScripts: {
+                  $className: 'StarterPlayerScripts',
+                  Client: { $path: 'src/client' },
+                },
+              },
+            },
+          });
+
+          for (const placeName of placeNames) {
+            const placeUri = vscode.Uri.joinPath(projectUri, placeName);
+            await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/server'));
+            await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/client'));
+            await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/shared'));
+            await vscode.workspace.fs.writeFile(
+              vscode.Uri.joinPath(placeUri, 'src/server/init.server.luau'),
+              Buffer.from('-- Server entry point\n')
+            );
+            await vscode.workspace.fs.writeFile(
+              vscode.Uri.joinPath(placeUri, 'src/client/init.client.luau'),
+              Buffer.from('-- Client entry point\n')
+            );
+            await vscode.workspace.fs.writeFile(
+              vscode.Uri.joinPath(placeUri, 'default.project.json'),
+              Buffer.from(JSON.stringify(makePlaceConfig(placeName), null, 2))
+            );
+          }
+
+          // aftman.toml at project root
+          const aftmanToml =
+            '# Aftman toolchain — managed by LunaIDE\n' +
+            '[tools]\n' +
+            'rojo = "rojo-rbx/rojo@7"\n';
+          await vscode.workspace.fs.writeFile(
+            vscode.Uri.joinPath(projectUri, 'aftman.toml'),
+            Buffer.from(aftmanToml)
+          );
         } else {
           // Minimal
           const minimalConfig = {

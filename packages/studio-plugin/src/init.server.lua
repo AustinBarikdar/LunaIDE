@@ -16,11 +16,11 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 -- Modules
-local HttpPoller = require(script.Parent.HttpPoller)
-local OutputCapture = require(script.Parent.OutputCapture)
-local PlaytestController = require(script.Parent.PlaytestController)
-local TestInjector = require(script.Parent.TestInjector)
-local InstanceSerializer = require(script.Parent.InstanceSerializer)
+local HttpPoller = require(script.HttpPoller)
+local OutputCapture = require(script.OutputCapture)
+local PlaytestController = require(script.PlaytestController)
+local TestInjector = require(script.TestInjector)
+local InstanceSerializer = require(script.InstanceSerializer)
 
 -- Config
 local IDE_PORT = 21026
@@ -50,6 +50,10 @@ end)
 
 poller:registerHandler("inject_script", function(payload)
 	return testInjector:inject(payload)
+end)
+
+poller:registerHandler("is_running", function(_payload)
+	return true, { isRunning = RunService:IsRunning() }
 end)
 
 poller:registerHandler("get_instances", function(payload)
@@ -219,7 +223,7 @@ local function performHandshake(): boolean
 		studioId = STUDIO_ID,
 		version = PLUGIN_VERSION,
 		placeId = game.PlaceId,
-		placeName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name or "Unknown",
+		placeName = game.Name or "Unknown",
 	})
 
 	local success, err = pcall(function()
@@ -272,6 +276,40 @@ local function startInstanceSync()
 	end)
 end
 
+-- Toolbar button
+local toolbar = plugin:CreateToolbar("LunaIDE")
+local toggleButton = toolbar:CreateButton(
+	"LunaIDE",
+	"Toggle LunaIDE connection",
+	"rbxassetid://6022668888" -- chain-link icon
+)
+toggleButton.ClickableWhenViewportHidden = true
+
+local function setButtonState(isConnected: boolean)
+	toggleButton:SetActive(isConnected)
+end
+
+toggleButton.Click:Connect(function()
+	if connected then
+		connected = false
+		outputCapture:stop()
+		poller:stop()
+		setButtonState(false)
+		print("[LunaIDE] Disconnected.")
+	else
+		connected = performHandshake()
+		if connected then
+			outputCapture:start()
+			poller:start()
+			startOutputFlushing()
+			startInstanceSync()
+			setButtonState(true)
+		else
+			print("[LunaIDE] Could not connect to LunaIDE — is the IDE open?")
+		end
+	end
+end)
+
 -- Startup
 local function startup()
 	-- Try to connect to IDE
@@ -290,6 +328,7 @@ local function startup()
 				poller:start()
 				startOutputFlushing()
 				startInstanceSync()
+				setButtonState(true)
 			end
 		end)
 		return
@@ -300,6 +339,7 @@ local function startup()
 	poller:start()
 	startOutputFlushing()
 	startInstanceSync()
+	setButtonState(true)
 end
 
 -- Cleanup on plugin unload
@@ -312,10 +352,13 @@ plugin.Unloading:Connect(function()
 end)
 
 -- Clean up injected test scripts when playtest stops
-RunService:GetPropertyChangedSignal("Running"):Connect(function()
-	if not RunService:IsRunning() then
+local wasRunning = false
+RunService.Heartbeat:Connect(function()
+	local isRunning = RunService:IsRunning()
+	if wasRunning and not isRunning then
 		testInjector:cleanup()
 	end
+	wasRunning = isRunning
 end)
 
 startup()

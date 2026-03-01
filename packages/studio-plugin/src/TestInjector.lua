@@ -1,10 +1,9 @@
 --[[
   TestInjector — Creates and executes test scripts in ServerScriptService.
-  Used by AI agents to inject test code during playtest.
+  Used by AI agents to inject test code without requiring a playtest.
 ]]
 
 local ServerScriptService = game:GetService("ServerScriptService")
-local RunService = game:GetService("RunService")
 
 local TestInjector = {}
 TestInjector.__index = TestInjector
@@ -16,19 +15,17 @@ function TestInjector.new()
 end
 
 function TestInjector:inject(payload: { source: string, name: string? }): (boolean, any?)
-	if not RunService:IsRunning() then
-		return false, "Cannot inject script: no playtest is running"
-	end
-
 	local scriptName = payload.name or ("LunaIDETest_" .. tostring(os.time()))
 
-	-- Check if a script with this name already exists
+	-- Remove any existing script with this name
 	local existing = ServerScriptService:FindFirstChild(scriptName)
 	if existing then
 		existing:Destroy()
 	end
 
-	-- Create and inject the script
+	-- Set .Source BEFORE parenting to avoid triggering StudioService:SetValue.
+	-- Studio's internal source-tracking only applies to DataModel-parented instances,
+	-- so setting source on an unparented instance is safe.
 	local testScript = Instance.new("Script")
 	testScript.Name = scriptName
 	testScript.Source = payload.source

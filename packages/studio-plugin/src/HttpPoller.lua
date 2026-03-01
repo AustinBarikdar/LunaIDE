@@ -67,7 +67,16 @@ function HttpPoller:_processCommand(command: { id: string, type: string, payload
 	local success, result
 
 	if handler then
-		success, result = pcall(handler, command.payload)
+		local pcallOk, handlerOk, handlerData = pcall(handler, command.payload)
+		if not pcallOk then
+			-- Runtime error: pcall caught a throw, error message is in handlerOk
+			success = false
+			result = handlerOk
+		else
+			-- Handler returned normally: (boolean, data?)
+			success = handlerOk
+			result = handlerData
+		end
 	else
 		success = false
 		result = "Unknown command type: " .. command.type

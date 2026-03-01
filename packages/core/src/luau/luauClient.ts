@@ -8,7 +8,6 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node.js';
 import { LuauDiagnostic } from '@roblox-ide/shared';
-import { RojoManager } from '../rojo/rojoManager.js';
 
 export class LuauClient implements vscode.Disposable {
   private client: LanguageClient | null = null;
@@ -17,10 +16,7 @@ export class LuauClient implements vscode.Disposable {
   private diagnosticsCache: Map<string, LuauDiagnostic[]> = new Map();
   private disposables: vscode.Disposable[] = [];
 
-  constructor(
-    private context: vscode.ExtensionContext,
-    private rojoManager: RojoManager,
-  ) {
+  constructor(private context: vscode.ExtensionContext) {
     this.outputChannel = vscode.window.createOutputChannel('LunaIDE: Luau LSP');
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
     this.disposables.push(this.outputChannel, this.statusBarItem);
@@ -30,6 +26,14 @@ export class LuauClient implements vscode.Disposable {
     const enabled = vscode.workspace.getConfiguration('robloxIde.luau').get<boolean>('enabled', true);
     if (!enabled) {
       this.log('Luau LSP is disabled.');
+      return;
+    }
+
+    // If JohnnyMorganz.luau-lsp is installed and active, defer to it
+    const johnnymorganz = vscode.extensions.getExtension('JohnnyMorganz.luau-lsp');
+    if (johnnymorganz?.isActive) {
+      this.log('JohnnyMorganz.luau-lsp is active — deferring LSP to it.');
+      this.subscribeTodiagnostics();
       return;
     }
 
@@ -56,7 +60,9 @@ export class LuauClient implements vscode.Disposable {
         { scheme: 'file', language: 'lua' },
       ],
       outputChannel: this.outputChannel,
-      initializationOptions: this.getInitOptions(),
+      initializationOptions: {
+        platform: { type: 'roblox' },
+      },
     };
 
     this.client = new LanguageClient(
@@ -66,25 +72,7 @@ export class LuauClient implements vscode.Disposable {
       clientOptions,
     );
 
-    // Track diagnostics for MCP server consumption
-    this.disposables.push(
-      vscode.languages.onDidChangeDiagnostics((e) => {
-        for (const uri of e.uris) {
-          const diagnostics = vscode.languages.getDiagnostics(uri);
-          const luauDiags: LuauDiagnostic[] = diagnostics.map((d) => ({
-            filePath: uri.fsPath,
-            line: d.range.start.line + 1,
-            column: d.range.start.character + 1,
-            endLine: d.range.end.line + 1,
-            endColumn: d.range.end.character + 1,
-            severity: this.mapSeverity(d.severity),
-            message: d.message,
-            code: typeof d.code === 'object' ? String(d.code.value) : d.code !== undefined ? String(d.code) : undefined,
-          }));
-          this.diagnosticsCache.set(uri.fsPath, luauDiags);
-        }
-      })
-    );
+    this.subscribeTodiagnostics();
 
     await this.client.start();
     this.log('Luau LSP started.');
@@ -124,6 +112,28 @@ export class LuauClient implements vscode.Disposable {
     return this.diagnosticsCache.get(filePath) || [];
   }
 
+  private subscribeTodiagnostics(): void {
+    // Track diagnostics for MCP server consumption
+    this.disposables.push(
+      vscode.languages.onDidChangeDiagnostics((e) => {
+        for (const uri of e.uris) {
+          const diagnostics = vscode.languages.getDiagnostics(uri);
+          const luauDiags: LuauDiagnostic[] = diagnostics.map((d) => ({
+            filePath: uri.fsPath,
+            line: d.range.start.line + 1,
+            column: d.range.start.character + 1,
+            endLine: d.range.end.line + 1,
+            endColumn: d.range.end.character + 1,
+            severity: this.mapSeverity(d.severity),
+            message: d.message,
+            code: typeof d.code === 'object' ? String(d.code.value) : d.code !== undefined ? String(d.code) : undefined,
+          }));
+          this.diagnosticsCache.set(uri.fsPath, luauDiags);
+        }
+      })
+    );
+  }
+
   private buildArgs(): string[] {
     const args = ['lsp'];
 
@@ -133,24 +143,7 @@ export class LuauClient implements vscode.Disposable {
       args.push(`--definitions=${defsPath}`);
     }
 
-    // Add sourcemap only if it already exists on disk
-    const sourcemapPath = this.rojoManager.getSourcemapPath();
-    if (sourcemapPath) {
-      args.push(`--sourcemap=${sourcemapPath}`);
-    }
-
     return args;
-  }
-
-  private getInitOptions(): Record<string, unknown> {
-    const sourcemapPath = this.rojoManager.getSourcemapPath();
-    return {
-      'platform': { 'type': 'roblox' },
-      'sourcemap': {
-        'enabled': sourcemapPath !== undefined,
-        'autogenerate': false, // Rojo Manager handles generation
-      },
-    };
   }
 
   private async findLuauLspBinary(): Promise<string | null> {
@@ -217,7 +210,7 @@ export class LuauClient implements vscode.Disposable {
   }
 
   dispose(): void {
-    this.stop();
+    void this.stop();
     this.disposables.forEach((d) => d.dispose());
   }
 }

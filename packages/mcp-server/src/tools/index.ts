@@ -9,8 +9,6 @@ import { setPropertiesTool } from './setProperties.js';
 import { getDiagnosticsTool } from './getDiagnostics.js';
 import { getProjectStructureTool } from './getProjectStructure.js';
 import { rollbackSessionTool } from './rollbackSession.js';
-import { startPlaytestTool } from './startPlaytest.js';
-import { stopPlaytestTool } from './stopPlaytest.js';
 import { getOutputTool } from './getOutput.js';
 import { getChildrenTool } from './getChildren.js';
 import { getInstancePropertiesTool } from './getInstanceProperties.js';
@@ -50,8 +48,6 @@ export function createTools(bridge: BridgeClient, lockManager: LockManager): Too
         getProjectStructureTool(bridge),
         rollbackSessionTool(bridge),
         // Studio tools
-        startPlaytestTool(bridge),
-        stopPlaytestTool(bridge),
         getOutputTool(bridge),
         getChildrenTool(bridge),
         getInstancePropertiesTool(bridge),

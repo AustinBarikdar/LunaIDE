@@ -75,6 +75,15 @@
       {
         "command": "lunaide.createProject",
         "title": "LunaIDE: Create New Project"
+      },
+      {
+        "command": "lunaide.connectAgent",
+        "title": "LunaIDE: Connect AI Agent",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "lunaide.switchPlace",
+        "title": "LunaIDE: Switch Place"
       }
     ],
     "configuration": {
@@ -115,11 +124,6 @@
           "default": true,
           "description": "Enable Rojo sourcemap generation for Luau LSP."
         },
-        "robloxIde.luau.sourcemap.autogenerate": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically regenerate sourcemap when project changes."
-        },
         "robloxIde.studio.bridgePort": {
           "type": "number",
           "default": 21026,
@@ -137,6 +141,13 @@
         }
       }
     },
+    "grammars": [
+      {
+        "language": "luau",
+        "scopeName": "source.luau",
+        "path": "./assets/syntaxes/Luau.tmLanguage.json"
+      }
+    ],
     "languages": [
       {
         "id": "luau",

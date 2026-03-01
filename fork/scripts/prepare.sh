@@ -112,6 +112,21 @@ echo "Building extensions..."
 cd "$ROOT_DIR"
 pnpm build
 
+# Build Lua 5.1 from source and bundle into extension
+echo "Building Lua 5.1..."
+LUA_BIN_OUT="$ROOT_DIR/packages/core/assets/bin/lua"
+if [ ! -f "$LUA_BIN_OUT" ]; then
+    LUA_TMP=$(mktemp -d /tmp/lua-build-XXXXXX)
+    curl -sL "https://www.lua.org/ftp/lua-5.1.5.tar.gz" | tar xz -C "$LUA_TMP"
+    make -C "$LUA_TMP/lua-5.1.5" macosx -j"$(sysctl -n hw.logicalcpu)" 2>/dev/null
+    cp "$LUA_TMP/lua-5.1.5/src/lua" "$LUA_BIN_OUT"
+    chmod +x "$LUA_BIN_OUT"
+    rm -rf "$LUA_TMP"
+    echo "Lua 5.1 built and bundled."
+else
+    echo "Lua 5.1 already bundled, skipping build."
+fi
+
 # Download luau-lsp binary for macOS (bundled into extension)
 echo "Downloading luau-lsp..."
 LUAU_LSP_ASSET_URL=$(curl -s "https://api.github.com/repos/JohnnyMorganz/luau-lsp/releases/latest" | grep "browser_download_url.*macos\.zip" | cut -d '"' -f 4 | head -n 1)
@@ -128,6 +143,33 @@ else
 fi
 
 echo "Injecting extensions..."
+
+# Install JohnnyMorganz luau-lsp into the user extensions dir (~/.lunaide/extensions/)
+# so it appears in the Extensions tab and can be updated from there.
+echo "Installing luau-lsp extension..."
+LUAU_EXT_VERSION=$(curl -s "https://open-vsx.org/api/JohnnyMorganz/luau-lsp" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ -n "$LUAU_EXT_VERSION" ]; then
+    USER_EXT_DIR="$HOME/.lunaide/extensions"
+    LUAU_EXT_DEST="$USER_EXT_DIR/JohnnyMorganz.luau-lsp-${LUAU_EXT_VERSION}"
+    if [ ! -d "$LUAU_EXT_DEST" ]; then
+        LUAU_EXT_URL="https://open-vsx.org/api/JohnnyMorganz/luau-lsp/darwin-arm64/${LUAU_EXT_VERSION}/file/JohnnyMorganz.luau-lsp-${LUAU_EXT_VERSION}@darwin-arm64.vsix"
+        LUAU_EXT_TMP=$(mktemp /tmp/luau-lsp-ext-XXXXXX.vsix)
+        LUAU_EXT_UNZIP=$(mktemp -d /tmp/luau-lsp-ext-XXXXXX)
+        curl -sL "$LUAU_EXT_URL" -o "$LUAU_EXT_TMP"
+        unzip -o -q "$LUAU_EXT_TMP" "extension/*" -d "$LUAU_EXT_UNZIP"
+        mkdir -p "$LUAU_EXT_DEST"
+        cp -r "$LUAU_EXT_UNZIP/extension/." "$LUAU_EXT_DEST/"
+        rm -f "$LUAU_EXT_TMP" && rm -rf "$LUAU_EXT_UNZIP"
+        echo "luau-lsp extension installed to user extensions: ${LUAU_EXT_VERSION}"
+    else
+        echo "luau-lsp extension already installed: ${LUAU_EXT_VERSION}"
+    fi
+    # Remove any old version from app/extensions to avoid duplicate built-in copies
+    rm -rf "$APP_DIR/Contents/Resources/app/extensions"/JohnnyMorganz.luau-lsp-*
+else
+    echo "Warning: Could not fetch luau-lsp extension version from Open VSX."
+fi
+
 # VS Code requires built-in extensions to be named exactly: publisher.name-version
 EXT_DIR="$APP_DIR/Contents/Resources/app/extensions"
 CORE_EXT_DIR="$EXT_DIR/roblox-ide.roblox-ide-core-0.1.0"
@@ -139,6 +181,7 @@ mkdir -p "$MCP_EXT_DIR"
 cp -r "$ROOT_DIR/packages/core/dist" "$CORE_EXT_DIR/"
 cp "$ROOT_DIR/packages/core/package.json" "$CORE_EXT_DIR/"
 cp -r "$ROOT_DIR/packages/core/assets" "$CORE_EXT_DIR/"
+cp "$ROOT_DIR/packages/core/language-configuration.json" "$CORE_EXT_DIR/"
 
 # Download Roblox global type definitions for Luau LSP
 echo "Downloading Roblox globalTypes.d.luau..."
@@ -190,6 +233,65 @@ for suffix in "" " (GPU)" " (Plugin)" " (Renderer)"; do
         rm -f "$APP_DIR/Contents/Frameworks/$new_helper.app/Contents/Info.plist.bak"
     fi
 done
+
+# Step 9: Build and install the Studio plugin
+echo "Building Studio plugin..."
+PLUGIN_DIR="$ROOT_DIR/packages/studio-plugin"
+ROBLOX_PLUGINS_DIR="$HOME/Documents/Roblox/Plugins"
+PLUGIN_OUT="$ROBLOX_PLUGINS_DIR/LunaIDE.rbxmx"
+
+# Find rojo binary (mirror rojoManager search order)
+ROJO_BIN=""
+AFTMAN_STORE="$HOME/.aftman/tool-storage/rojo-rbx/rojo"
+if [ -d "$AFTMAN_STORE" ]; then
+    LATEST_VER=$(ls "$AFTMAN_STORE" | sort -V | tail -n 1)
+    if [ -n "$LATEST_VER" ] && [ -x "$AFTMAN_STORE/$LATEST_VER/rojo" ]; then
+        ROJO_BIN="$AFTMAN_STORE/$LATEST_VER/rojo"
+    fi
+fi
+if [ -z "$ROJO_BIN" ] && [ -x "$HOME/.foreman/bin/rojo" ]; then
+    ROJO_BIN="$HOME/.foreman/bin/rojo"
+fi
+if [ -z "$ROJO_BIN" ] && [ -x "$HOME/.cargo/bin/rojo" ]; then
+    ROJO_BIN="$HOME/.cargo/bin/rojo"
+fi
+if [ -z "$ROJO_BIN" ]; then
+    ROJO_BIN=$(which rojo 2>/dev/null || true)
+fi
+
+if [ -z "$ROJO_BIN" ]; then
+    echo "Warning: rojo not found — skipping Studio plugin build."
+else
+    mkdir -p "$ROBLOX_PLUGINS_DIR"
+    "$ROJO_BIN" build "$PLUGIN_DIR/default.project.json" --output "$PLUGIN_OUT"
+    echo "Studio plugin installed to: $PLUGIN_OUT"
+    # Bundle the pre-built plugin into the app extension so _installPlugin() can copy it without rojo
+    cp "$PLUGIN_OUT" "$CORE_EXT_DIR/LunaIDE.rbxmx"
+    echo "Studio plugin bundled into app at: $CORE_EXT_DIR/LunaIDE.rbxmx"
+fi
+
+# Step 10: Install 'lunaide' shell command
+echo "Installing 'lunaide' shell command..."
+LUNA_BIN="$APP_DIR/Contents/Resources/app/bin/codium"
+if [ -f "$LUNA_BIN" ]; then
+    # Try /usr/local/bin first, fall back to ~/.local/bin
+    if ln -sf "$LUNA_BIN" /usr/local/bin/lunaide 2>/dev/null; then
+        echo "'lunaide' command installed at /usr/local/bin/lunaide"
+    else
+        LOCALBIN="$(eval echo ~$USER)/.local/bin"
+        mkdir -p "$LOCALBIN"
+        ln -sf "$LUNA_BIN" "$LOCALBIN/lunaide"
+        echo "'lunaide' command installed at $LOCALBIN/lunaide"
+        # Ensure ~/.local/bin is in PATH via .zshrc
+        ZSHRC="$(eval echo ~$USER)/.zshrc"
+        if [ -f "$ZSHRC" ] && ! grep -q '\.local/bin' "$ZSHRC"; then
+            printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$ZSHRC"
+            echo "  Added ~/.local/bin to PATH in ~/.zshrc"
+        fi
+    fi
+else
+    echo "Warning: Could not find lunaide binary at $LUNA_BIN"
+fi
 
 echo "=== Done! ==="
 echo "Your app is ready at: $APP_DIR"

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "lunaide": {
+      "command": "node",
+      "args": [
+        "/Users/Austi/Documents/Coding Projects/RobloxIDE/packages/mcp-server/dist/index.js"
+      ]
+    },
+    "roblox-studio": {
+      "command": "/Users/Austi/.lunaide/bin/RobloxStudioMCP.app/Contents/MacOS/rbx-studio-mcp",
+      "args": ["--stdio"]
+    }
+  }
+}

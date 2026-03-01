@@ -1,10 +1,6 @@
 {
     "name": "LunaIDE Plugin",
     "tree": {
-        "$className": "DataModel",
-        "LunaIDEPlugin": {
-            "$className": "Folder",
-            "$path": "src"
-        }
+        "$path": "src"
     }
 }

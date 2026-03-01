@@ -110,13 +110,8 @@ export class BridgeClient {
 
     // --- Studio operations ---
 
-    async startPlaytest(mode?: string, testScript?: string, studioId?: string): Promise<unknown> {
-        const data = await this.jsonRequest('POST', '/studio/playtest/start', { mode, testScript, studioId });
-        return data.data;
-    }
-
-    async stopPlaytest(studioId?: string): Promise<unknown> {
-        const data = await this.jsonRequest('POST', '/studio/playtest/stop', { studioId });
+    async injectScript(source: string, name?: string, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/inject', { source, name, studioId });
         return data.data;
     }
 

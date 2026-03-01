@@ -126,11 +126,8 @@ export class BridgeServer implements vscode.Disposable {
                 result = await this.handleSetProperties(body);
             }
             // Studio (MCP -> bridge -> StudioManager -> Studio plugin)
-            else if (method === 'POST' && pathname === '/studio/playtest/start') {
-                result = await this.handleStartPlaytest(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/playtest/stop') {
-                result = await this.handleStopPlaytest(body);
+            else if (method === 'POST' && pathname === '/studio/inject') {
+                result = await this.handleInjectScript(body);
             }
             else if (method === 'GET' && pathname === '/studio/output') {
                 const since = url.searchParams.get('since');
@@ -372,46 +369,17 @@ export class BridgeServer implements vscode.Disposable {
 
     // --- Studio handlers ---
 
-    private async handleStartPlaytest(body: Record<string, unknown>): Promise<BridgeResponse> {
+    private async handleInjectScript(body: Record<string, unknown>): Promise<BridgeResponse> {
         const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
         if (!studioId) {
             return { success: false, error: 'No Studio instance connected' };
         }
 
         try {
-            // Send start_playtest command to Studio
-            const result = await this.studioManager.sendCommand(studioId, 'start_playtest', {
-                mode: body.mode || 'Play',
+            const result = await this.studioManager.sendCommand(studioId, 'inject_script', {
+                source: body.source,
+                name: body.name,
             });
-
-            // If test script provided, inject it after a short delay
-            if (body.testScript) {
-                setTimeout(async () => {
-                    try {
-                        await this.studioManager.sendCommand(studioId, 'inject_script', {
-                            source: body.testScript,
-                        });
-                    } catch (err) {
-                        this.log(`Failed to inject test script: ${err}`);
-                    }
-                }, 2000);
-            }
-
-            return { success: true, data: result };
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return { success: false, error: message };
-        }
-    }
-
-    private async handleStopPlaytest(body: Record<string, unknown>): Promise<BridgeResponse> {
-        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
-        if (!studioId) {
-            return { success: false, error: 'No Studio instance connected' };
-        }
-
-        try {
-            const result = await this.studioManager.sendCommand(studioId, 'stop_playtest', {});
             return { success: true, data: result };
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);

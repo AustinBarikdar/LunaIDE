@@ -2,8 +2,8 @@
   PlaytestController — Start and stop playtests via the plugin API.
 ]]
 
-local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local RunService = game:GetService("RunService")
+local StudioTestService = game:GetService("StudioTestService")
 
 local PlaytestController = {}
 PlaytestController.__index = PlaytestController
@@ -21,17 +21,29 @@ function PlaytestController:startPlaytest(payload: { mode: string? }): (boolean,
 		return true, { status = "already_running" }
 	end
 
-	if mode == "Play" then
-		-- Start Play mode
-		self._plugin:GetStudioService("StudioService"):SetValue("play", true)
-	elseif mode == "Run" then
-		-- Start Run mode (server only)
-		self._plugin:GetStudioService("StudioService"):SetValue("run", true)
-	elseif mode == "PlayHere" then
-		-- Play from current camera position
-		self._plugin:GetStudioService("StudioService"):SetValue("playhere", true)
-	else
+	if mode ~= "Play" and mode ~= "PlayHere" and mode ~= "Run" then
 		return false, "Unknown playtest mode: " .. tostring(mode)
+	end
+
+	local spawnErr = nil
+	if mode == "Play" or mode == "PlayHere" then
+		task.spawn(function()
+			local ok, err = pcall(function()
+				StudioTestService:ExecutePlayModeAsync(nil)
+			end)
+			if not ok then spawnErr = err end
+		end)
+	elseif mode == "Run" then
+		task.spawn(function()
+			local ok, err = pcall(function()
+				StudioTestService:ExecuteRunModeAsync(nil)
+			end)
+			if not ok then spawnErr = err end
+		end)
+	end
+	task.wait(0)
+	if spawnErr then
+		return false, "Failed to start playtest: " .. tostring(spawnErr)
 	end
 
 	return true, { status = "started", mode = mode }
@@ -42,8 +54,12 @@ function PlaytestController:stopPlaytest(): (boolean, any?)
 		return true, { status = "not_running" }
 	end
 
-	-- Stop playtest
-	self._plugin:GetStudioService("StudioService"):SetValue("stop", true)
+	local ok, err = pcall(function()
+		RunService:Stop()
+	end)
+	if not ok then
+		return false, "Failed to stop playtest: " .. tostring(err)
+	end
 
 	return true, { status = "stopped" }
 end

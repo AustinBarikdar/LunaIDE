@@ -11,6 +11,7 @@ export class RojoManager implements vscode.Disposable {
   private outputChannel: vscode.OutputChannel;
   private status: RojoStatus;
   private state: RojoConnectionState = 'disconnected';
+  private placeDir: string | undefined;
   private disposables: vscode.Disposable[] = [];
 
   constructor(private context: vscode.ExtensionContext) {
@@ -64,11 +65,13 @@ export class RojoManager implements vscode.Disposable {
     // Kill any stale process holding our port (e.g. from a previous extension host run)
     await this.killProcessOnPort(this.getPort());
 
+    const effectiveCwd = this.getEffectiveCwd() ?? workspaceFolder;
+
     // Start rojo serve
-    await this.startServe(rojoBinary, workspaceFolder);
+    await this.startServe(rojoBinary, effectiveCwd);
 
     // Start sourcemap generation
-    await this.startSourcemap(rojoBinary, workspaceFolder);
+    await this.startSourcemap(rojoBinary, effectiveCwd);
   }
 
   async stop(): Promise<void> {
@@ -88,14 +91,18 @@ export class RojoManager implements vscode.Disposable {
     await this.start();
   }
 
+  setPlaceDir(dir: string): void {
+    this.placeDir = dir;
+  }
+
   getState(): RojoConnectionState {
     return this.state;
   }
 
   getSourcemapPath(): string | undefined {
-    const workspaceFolder = this.getWorkspaceFolder();
-    if (!workspaceFolder) return undefined;
-    const smPath = path.join(workspaceFolder, 'sourcemap.json');
+    const cwd = this.getEffectiveCwd();
+    if (!cwd) return undefined;
+    const smPath = path.join(cwd, 'sourcemap.json');
     return fs.existsSync(smPath) ? smPath : undefined;
   }
 
@@ -278,9 +285,13 @@ export class RojoManager implements vscode.Disposable {
   }
 
   private getProjectFilePath(): string | undefined {
-    const folder = this.getWorkspaceFolder();
+    const folder = this.getEffectiveCwd();
     if (!folder) return undefined;
     return path.join(folder, this.getProjectFileName());
+  }
+
+  private getEffectiveCwd(): string | undefined {
+    return this.placeDir ?? this.getWorkspaceFolder();
   }
 
   private getWorkspaceFolder(): string | undefined {
