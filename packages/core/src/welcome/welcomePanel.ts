@@ -7,6 +7,11 @@ interface RecentProject {
     fullPath: string;
 }
 
+export interface PlaceData {
+    names: string[];
+    active: string | undefined;
+}
+
 export class WelcomePanel {
     public static currentPanel: WelcomePanel | undefined;
     private readonly _panel: vscode.WebviewPanel;
@@ -17,11 +22,12 @@ export class WelcomePanel {
         _extensionUri: vscode.Uri,
         recentProjects: RecentProject[],
         totalRecent: number,
+        placeData?: PlaceData,
     ) {
         this._panel = panel;
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
-        this._panel.webview.html = this._getHtml(recentProjects, totalRecent);
+        this._panel.webview.html = this._getHtml(recentProjects, totalRecent, placeData);
 
         this._panel.webview.onDidReceiveMessage(
             async (message) => {
@@ -57,6 +63,9 @@ export class WelcomePanel {
                     case 'openSearch':
                         vscode.commands.executeCommand('workbench.action.quickOpen');
                         return;
+                    case 'switchPlace':
+                        vscode.commands.executeCommand('lunaide.switchPlace', message.name as string);
+                        return;
                 }
             },
             null,
@@ -64,13 +73,14 @@ export class WelcomePanel {
         );
     }
 
-    public static async createOrShow(extensionUri: vscode.Uri) {
+    public static async createOrShow(extensionUri: vscode.Uri, placeData?: PlaceData) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
 
         if (WelcomePanel.currentPanel) {
             WelcomePanel.currentPanel._panel.reveal(column);
+            if (placeData) WelcomePanel.refreshPlaces(placeData.names, placeData.active);
             return;
         }
 
@@ -86,7 +96,14 @@ export class WelcomePanel {
             },
         );
 
-        WelcomePanel.currentPanel = new WelcomePanel(panel, extensionUri, recentProjects, total);
+        WelcomePanel.currentPanel = new WelcomePanel(panel, extensionUri, recentProjects, total, placeData);
+    }
+
+    public static refreshPlaces(names: string[], active: string | undefined): void {
+        if (!WelcomePanel.currentPanel) return;
+        void WelcomePanel.currentPanel._panel.webview.postMessage({
+            command: 'updatePlaces', names, active,
+        });
     }
 
     private static async _getRecentProjects(): Promise<{ recentProjects: RecentProject[]; total: number }> {
@@ -123,7 +140,7 @@ export class WelcomePanel {
         }
     }
 
-    private _getHtml(recentProjects: RecentProject[], totalRecent: number): string {
+    private _getHtml(recentProjects: RecentProject[], totalRecent: number, placeData?: PlaceData): string {
         const recentRows = recentProjects.map((p) => {
             const letter = escapeHtml(p.name.charAt(0).toUpperCase());
             return `
@@ -140,6 +157,29 @@ export class WelcomePanel {
             <div class="show-more" onclick="viewAll()">
                 <span class="show-more-dots">···</span> Show more projects
             </div>` : '';
+
+        const placesSection = (placeData && placeData.names.length > 0) ? `
+<div class="place-section">
+  <div class="section-label">Places</div>
+  <div class="place-grid">
+    ${placeData.names.map(n => {
+        const isActive = n === placeData.active;
+        const safeName = escapeHtml(n);
+        return `
+    <div class="place-card${isActive ? ' active' : ''}" data-place="${safeName}"
+         onclick="switchToPlace(${escapeHtml(JSON.stringify(n))})">
+      <div class="place-card-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+      </div>
+      <span class="place-card-name">${safeName}</span>
+      <span class="place-badge" style="display:${isActive ? '' : 'none'}">active</span>
+    </div>`;
+    }).join('')}
+  </div>
+</div>` : '';
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -398,6 +438,31 @@ export class WelcomePanel {
   }
   .show-more:hover { color: var(--vscode-foreground); }
   .show-more-dots { margin-right: 6px; letter-spacing: 2px; }
+
+  /* ── Places section ── */
+  .place-section { margin-bottom: 24px; }
+  .place-grid { display: flex; flex-direction: column; gap: 3px; }
+  .place-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; border-radius: 8px; cursor: pointer;
+    transition: background 0.1s;
+    border: 1px solid transparent;
+  }
+  .place-card:hover { background: var(--vscode-list-hoverBackground); }
+  .place-card.active {
+    background: var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.08));
+    border-color: var(--vscode-focusBorder, rgba(255,255,255,0.14));
+  }
+  .place-card-icon {
+    color: var(--vscode-descriptionForeground);
+    flex-shrink: 0; display: flex; align-items: center;
+  }
+  .place-card.active .place-card-icon { color: var(--vscode-terminal-ansiBrightBlue, #89b4fa); }
+  .place-card-name { flex: 1; font-size: 13.5px; font-weight: 500; color: var(--vscode-foreground); }
+  .place-badge {
+    font-size: 10px; padding: 2px 6px; border-radius: 3px;
+    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+  }
 </style>
 </head>
 <body>
@@ -491,8 +556,9 @@ export class WelcomePanel {
     <!-- Divider -->
     <div class="divider"></div>
 
-    <!-- Right: Recent projects -->
+    <!-- Right: Places (if any) + Recent projects -->
     <div class="right-col">
+      ${placesSection}
       <div class="recent-header">
         <span class="section-label" style="margin-bottom:0">Recent</span>
         <span class="view-all" onclick="viewAll()">View All</span>
@@ -515,6 +581,19 @@ export class WelcomePanel {
   function openSearch() { vscode.postMessage({ command: 'openSearch' }); }
   function openRecent(fullPath) { vscode.postMessage({ command: 'openRecent', path: fullPath }); }
   function viewAll() { vscode.postMessage({ command: 'viewAllRecent' }); }
+  function switchToPlace(name) { vscode.postMessage({ command: 'switchPlace', name }); }
+
+  window.addEventListener('message', event => {
+    const msg = event.data;
+    if (msg.command === 'updatePlaces') {
+      document.querySelectorAll('.place-card').forEach(el => {
+        const isActive = el.dataset.place === msg.active;
+        el.classList.toggle('active', isActive);
+        const badge = el.querySelector('.place-badge');
+        if (badge) badge.style.display = isActive ? '' : 'none';
+      });
+    }
+  });
 
   // ⌘N / ⌘O keyboard shortcuts
   document.addEventListener('keydown', (e) => {

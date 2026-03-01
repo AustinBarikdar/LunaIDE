@@ -177,6 +177,11 @@
     "views": {
       "robloxIde": [
         {
+          "id": "robloxIde.places",
+          "name": "Places",
+          "when": "robloxIde.hasMultiplePlaces"
+        },
+        {
           "id": "robloxIde.sessionHistory",
           "name": "Session History"
         },
