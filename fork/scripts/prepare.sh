@@ -159,7 +159,23 @@ for old in [b'default:\"welcomePage\"', b'default:\"welcomePageInEmptyWorkbench\
 open(p, 'wb').write(data)
 " "$WORKBENCH_JS"
 
-# Step 5.5: Patch the Electron executable for the Safe Storage keychain string
+# Step 5.5: Patch package.json inside the app to fix Safe Storage name
+echo "Patching app/package.json..."
+PACKAGE_JSON="$APP_DIR/Contents/Resources/app/package.json"
+python3 -c "
+import sys, json
+p = sys.argv[1]
+try:
+    with open(p, 'r') as f:
+        data = json.load(f)
+    data['name'] = 'LunaIDE'
+    with open(p, 'w') as f:
+        json.dump(data, f, indent=2)
+except Exception as e:
+    print(f'Error patching package.json: {e}')
+" "$PACKAGE_JSON"
+
+# Step 5.6: Patch the Electron executable for the Safe Storage keychain string
 echo "Patching Electron executable keychain strings..."
 EXEC_FILE="$APP_DIR/Contents/MacOS/Electron"
 # We pad "LunaIDE  Safe Storage" to match the exact byte length of "VSCodium Safe Storage"
