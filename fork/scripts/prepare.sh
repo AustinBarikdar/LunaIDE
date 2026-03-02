@@ -95,10 +95,69 @@ sed -i.bak 's/vscodium/lunaide/g' "$PRODUCT_JSON"
 sed -i.bak 's/codium/lunaide/g' "$PRODUCT_JSON"
 sed -i.bak 's/\.vscode-oss/\.lunaide/g' "$PRODUCT_JSON"
 
-# Link the default settings in product.json
-# We add "settings": { "default": { "workbench.startupEditor": "none" } } essentially by pointing it to the file
-sed -i.bak 's/"nameShort": "LunaIDE",/"nameShort": "LunaIDE",\n  "settings": {"default": {"workbench.startupEditor": "none"}},/g' "$PRODUCT_JSON"
-rm -f "$PRODUCT_JSON.bak"
+# Inject fork/branding/product.json into the app's product.json
+python3 -c "
+import json, sys
+app_product_path = sys.argv[1]
+branding_product_path = sys.argv[2]
+
+# Load both JSON files
+try:
+    with open(app_product_path, 'r') as f:
+        app_product = json.load(f)
+except Exception as e:
+    print(f'Error reading app product.json: {e}')
+    sys.exit(1)
+
+try:
+    with open(branding_product_path, 'r') as f:
+        branding_product = json.load(f)
+except Exception as e:
+    print(f'Error reading branding product.json: {e}')
+    branding_product = {}
+
+# Preserve important keys from original
+commit = app_product.get('commit')
+version = app_product.get('version')
+date = app_product.get('date')
+
+# Grab the defaultSettings from branding
+branding_settings = branding_product.pop('defaultSettings', {})
+
+# Merge rest of branding into app product
+app_product.update(branding_product)
+
+# Map defaultSettings to configurationDefaults which VS Code expects
+if 'configurationDefaults' not in app_product:
+    app_product['configurationDefaults'] = {}
+app_product['configurationDefaults'].update(branding_settings)
+
+# Restore original keys if not provided in branding
+if commit: app_product['commit'] = commit
+if version: app_product['version'] = version
+if date: app_product['date'] = date
+
+# Clean up unwanted keys
+app_product.pop('settings', None)
+app_product.pop('checksums', None)
+
+with open(app_product_path, 'w') as f:
+    json.dump(app_product, f, indent=2)
+" "$PRODUCT_JSON" "$ROOT_DIR/fork/branding/product.json"
+
+# Step 5.4: Patch workbench JS — replace ALL hardcoded welcomePage defaults with "none"
+echo "Patching workbench.desktop.main.js (startupEditor defaults)..."
+WORKBENCH_JS="$APP_DIR/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js"
+python3 -c "
+import sys
+p = sys.argv[1]
+data = open(p, 'rb').read()
+# Replace both known hardcoded default values (byte-padded to preserve file length)
+for old in [b'default:\"welcomePage\"', b'default:\"welcomePageInEmptyWorkbench\"']:
+    new = b'default:\"none\"' + b' ' * (len(old) - len(b'default:\"none\"'))
+    data = data.replace(old, new)
+open(p, 'wb').write(data)
+" "$WORKBENCH_JS"
 
 # Step 5.5: Patch the Electron executable for the Safe Storage keychain string
 echo "Patching Electron executable keychain strings..."
@@ -198,6 +257,7 @@ echo "Injecting default settings..."
 mkdir -p "$APP_DIR/Contents/Resources/app/product"
 cat << 'EOF' > "$APP_DIR/Contents/Resources/app/product/defaultSettings.json"
 {
+  "workbench.colorTheme": "LunaIDE Tokyo Night",
   "workbench.startupEditor": "none",
   "workbench.tips.enabled": false,
   "workbench.welcomePage.walkthroughs.openOnInstall": false,
@@ -713,6 +773,25 @@ if [ -f "$LUNA_BIN" ]; then
     fi
 else
     echo "Warning: Could not find lunaide binary at $LUNA_BIN"
+fi
+
+# Step 10.5: Pre-create user settings so VSCodium never shows its welcome page on first launch
+echo "Pre-creating user settings..."
+LUNAIDE_USER_DIR="$HOME/Library/Application Support/lunaide/User"
+LUNAIDE_SETTINGS="$LUNAIDE_USER_DIR/settings.json"
+if [ ! -f "$LUNAIDE_SETTINGS" ]; then
+    mkdir -p "$LUNAIDE_USER_DIR"
+    cat << 'SETTINGS_EOF' > "$LUNAIDE_SETTINGS"
+{
+  "workbench.startupEditor": "none",
+  "workbench.welcomePage.walkthroughs.openOnInstall": false,
+  "workbench.tips.enabled": false,
+  "workbench.enableExperiments": false
+}
+SETTINGS_EOF
+    echo "User settings created at: $LUNAIDE_SETTINGS"
+else
+    echo "User settings already exist, skipping."
 fi
 
 echo "=== Done! ==="

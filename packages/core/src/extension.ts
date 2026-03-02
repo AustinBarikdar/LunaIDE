@@ -17,6 +17,7 @@ import { CreateProjectPanel } from './welcome/createProjectPanel.js';
 import { SetupPanel } from './setup/setupPanel.js';
 import { AgentConnector, AGENT_IDS, AGENT_LABELS } from './mcp/agentConnector.js';
 import { PlacesTreeView } from './places/placesTreeView.js';
+import { ToolUpdateChecker } from './tools/toolUpdateChecker.js';
 
 // ── Built-in project profiles ────────────────────────────────────────────────
 export interface ProfileService {
@@ -126,12 +127,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const outputChannel = vscode.window.createOutputChannel('LunaIDE');
   outputChannel.appendLine('LunaIDE is activating...');
 
-  // Suppress VSCodium's built-in welcome page — we show our own
+  // Suppress VSCodium's built-in welcome page, walkthroughs, and theme picker — we show our own
   const cfg = vscode.workspace.getConfiguration();
-  const startupEditorInspect = cfg.inspect('workbench.startupEditor');
-  if (!startupEditorInspect?.globalValue || startupEditorInspect.globalValue === 'welcomePage') {
-    void cfg.update('workbench.startupEditor', 'none', vscode.ConfigurationTarget.Global);
+  void cfg.update('workbench.startupEditor', 'none', vscode.ConfigurationTarget.Global);
+  void cfg.update('workbench.welcomePage.walkthroughs.openOnInstall', false, vscode.ConfigurationTarget.Global);
+  void cfg.update('workbench.tips.enabled', false, vscode.ConfigurationTarget.Global);
+  void cfg.update('workbench.enableExperiments', false, vscode.ConfigurationTarget.Global);
+
+  // Close any VSCodium walkthrough / get-started / welcome tabs already open (but leave LunaIDE's alone)
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (tab.input instanceof vscode.TabInputWebview) {
+        const label = tab.label.toLowerCase();
+        if (!label.includes('lunaide') && (label.includes('walkthrough') || label.includes('get started') || label.includes('welcome'))) {
+          void vscode.window.tabGroups.close(tab);
+        }
+      }
+    }
   }
+
+  // Reactively close built-in welcome tabs whenever they open OR become active (back-button navigation)
+  context.subscriptions.push(
+    vscode.window.tabGroups.onDidChangeTabs((e) => {
+      const isBuiltInWelcome = (tab: vscode.Tab) =>
+        tab.input instanceof vscode.TabInputWebview &&
+        !tab.label.toLowerCase().includes('lunaide') &&
+        (tab.label.toLowerCase().includes('welcome') || tab.label.toLowerCase().includes('walkthrough') || tab.label.toLowerCase().includes('get started'));
+
+      for (const tab of e.opened) {
+        if (isBuiltInWelcome(tab)) void vscode.window.tabGroups.close(tab);
+      }
+      // Back-button re-focuses an existing tab (appears in changed, not opened)
+      for (const tab of e.changed) {
+        if (tab.isActive && isBuiltInWelcome(tab)) void vscode.window.tabGroups.close(tab);
+      }
+    })
+  );
+
+  // Override the built-in welcome page command to show ours instead
+  context.subscriptions.push(
+    vscode.commands.registerCommand('workbench.action.showWelcomePage', () => {
+      void WelcomePanel.createOrShow(context.extensionUri);
+    })
+  );
 
   // Set Tokyo Night theme on first launch
   const themeApplied = context.globalState.get<boolean>('lunaide.themeApplied', false);
@@ -562,7 +600,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       outputChannel.appendLine(`Warning: Studio server failed to start: ${message}`);
     }
 
+
+
   }
+
+  // Check for tool updates (Rojo, Luau LSP) globally
+  const toolUpdateChecker = new ToolUpdateChecker(context);
+  context.subscriptions.push(toolUpdateChecker);
+  void toolUpdateChecker.checkForUpdates();
 
   outputChannel.appendLine('LunaIDE activated.');
 }

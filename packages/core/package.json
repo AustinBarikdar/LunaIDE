@@ -88,6 +88,15 @@
       {
         "command": "lunaide.editProfile",
         "title": "LunaIDE: Edit Project Profile"
+      },
+      {
+        "command": "lunaide.updateTools",
+        "title": "LunaIDE: Update Tools",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "lunaide.checkForUpdates",
+        "title": "LunaIDE: Check for Tool Updates"
       }
     ],
     "configuration": {

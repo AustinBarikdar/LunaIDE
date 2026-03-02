@@ -28,6 +28,10 @@
         "robloxIde.rojo.autoStart": true,
         "editor.fontFamily": "'JetBrains Mono', 'Fira Code', Menlo, monospace",
         "editor.fontSize": 14,
-        "workbench.colorTheme": "LunaIDE Tokyo Night"
+        "workbench.colorTheme": "LunaIDE Tokyo Night",
+        "workbench.startupEditor": "none",
+        "workbench.welcomePage.walkthroughs.openOnInstall": false,
+        "workbench.tips.enabled": false,
+        "workbench.enableExperiments": false
     }
 }
