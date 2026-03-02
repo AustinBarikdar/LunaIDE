@@ -129,7 +129,11 @@ export class CreateProjectPanel {
         }
       }
 
-      const config = { name: placeName, tree };
+      const config: Record<string, any> = { name: placeName };
+      if (placeId) {
+        config.placeId = placeId;
+      }
+      config.tree = tree;
       await vscode.workspace.fs.writeFile(
         vscode.Uri.joinPath(projectUri, 'default.project.json'),
         Buffer.from(JSON.stringify(config, null, 2)),
