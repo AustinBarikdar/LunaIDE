@@ -82,56 +82,7 @@ export class ToolUpdateChecker implements vscode.Disposable {
   }
 
   private getLatestGitHubRelease(repo: string): Promise<string | undefined> {
-    return new Promise((resolve) => {
-      const options: https.RequestOptions = {
-        hostname: 'api.github.com',
-        path: `/repos/${repo}/releases/latest`,
-        headers: { 'User-Agent': 'LunaIDE', Accept: 'application/vnd.github.v3+json' },
-        timeout: 10000,
-      };
-
-      const req = https.get(options, (res) => {
-        if (res.statusCode === 302 || res.statusCode === 301) {
-          // Follow redirect
-          const location = res.headers.location;
-          if (location) {
-            const url = new URL(location);
-            const redirectOpts: https.RequestOptions = {
-              hostname: url.hostname,
-              path: url.pathname + url.search,
-              headers: options.headers,
-              timeout: 10000,
-            };
-            const req2 = https.get(redirectOpts, (res2) => {
-              this.readJsonResponse(res2).then(resolve).catch(() => resolve(undefined));
-            });
-            req2.on('error', () => resolve(undefined));
-            return;
-          }
-        }
-        this.readJsonResponse(res).then(resolve).catch(() => resolve(undefined));
-      });
-
-      req.on('error', () => resolve(undefined));
-      req.on('timeout', () => { req.destroy(); resolve(undefined); });
-    });
-  }
-
-  private readJsonResponse(res: import('http').IncomingMessage): Promise<string | undefined> {
-    return new Promise((resolve) => {
-      let data = '';
-      res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          const tag: string = json.tag_name ?? '';
-          resolve(tag.replace(/^v/, ''));
-        } catch {
-          resolve(undefined);
-        }
-      });
-      res.on('error', () => resolve(undefined));
-    });
+    return getLatestGitHubRelease(repo);
   }
 
   private showUpdateAvailable(tool: ManagedTool, installed: string, latest: string): void {
@@ -244,7 +195,59 @@ export class ToolUpdateChecker implements vscode.Disposable {
   }
 }
 
-function getInstalledRojoVersion(): string | undefined {
+function readJsonResponse(res: import('http').IncomingMessage): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    let data = '';
+    res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        const tag: string = json.tag_name ?? '';
+        resolve(tag.replace(/^v/, ''));
+      } catch {
+        resolve(undefined);
+      }
+    });
+    res.on('error', () => resolve(undefined));
+  });
+}
+
+export function getLatestGitHubRelease(repo: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const options: https.RequestOptions = {
+      hostname: 'api.github.com',
+      path: `/repos/${repo}/releases/latest`,
+      headers: { 'User-Agent': 'LunaIDE', Accept: 'application/vnd.github.v3+json' },
+      timeout: 10000,
+    };
+
+    const req = https.get(options, (res) => {
+      if (res.statusCode === 302 || res.statusCode === 301) {
+        const location = res.headers.location;
+        if (location) {
+          const url = new URL(location);
+          const redirectOpts: https.RequestOptions = {
+            hostname: url.hostname,
+            path: url.pathname + url.search,
+            headers: options.headers,
+            timeout: 10000,
+          };
+          const req2 = https.get(redirectOpts, (res2) => {
+            readJsonResponse(res2).then(resolve).catch(() => resolve(undefined));
+          });
+          req2.on('error', () => resolve(undefined));
+          return;
+        }
+      }
+      readJsonResponse(res).then(resolve).catch(() => resolve(undefined));
+    });
+
+    req.on('error', () => resolve(undefined));
+    req.on('timeout', () => { req.destroy(); resolve(undefined); });
+  });
+}
+
+export function getInstalledRojoVersion(): string | undefined {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
   const storageDir = path.join(home, '.aftman', 'tool-storage', 'rojo-rbx', 'rojo');
 
@@ -263,7 +266,7 @@ function getInstalledRojoVersion(): string | undefined {
   return entries.sort((a, b) => compareSemver(b, a))[0];
 }
 
-function getInstalledLuauLspVersion(): string | undefined {
+export function getInstalledLuauLspVersion(): string | undefined {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
   const storageDir = path.join(home, '.aftman', 'tool-storage', 'luau-lsp');
 

@@ -42,12 +42,12 @@ export const BUILT_IN_PROFILES: Record<string, Profile> = {
   Complete: {
     name: 'Complete',
     services: {
-      ServerScriptService: { name: 'Server', src: 'src/server' },
+      ServerScriptService: { name: 'ServerScriptService', src: 'src/ServerScriptService' },
       ServerStorage: { name: 'ServerStorage', src: 'src/serverStorage' },
-      ReplicatedStorage: { name: 'Shared', src: 'src/shared' },
+      ReplicatedStorage: { name: 'ReplicatedStorage', src: 'src/ReplicatedStorage' },
       ReplicatedFirst: { name: 'ReplicatedFirst', src: 'src/replicatedFirst' },
-      'StarterPlayer.StarterPlayerScripts': { name: 'Client', src: 'src/client' },
-      'StarterPlayer.StarterCharacterScripts': { name: 'CharacterScripts', src: 'src/characterScripts' },
+      'StarterPlayer.StarterPlayerScripts': { name: 'StarterPlayerScripts', src: 'src/StarterPlayer/StarterPlayerScripts' },
+      'StarterPlayer.StarterCharacterScripts': { name: 'StarterCharacterScripts', src: 'src/StarterPlayer/StarterCharacterScripts' },
       StarterGui: { name: 'StarterGui', src: 'src/starterGui' },
       StarterPack: { name: 'StarterPack', src: 'src/starterPack' },
       Workspace: { name: 'Workspace', src: 'src/workspace' },

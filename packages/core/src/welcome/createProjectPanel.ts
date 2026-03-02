@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BUILT_IN_PROFILES, writePlacesConfig, type Profile } from '../extension.js';
+import { getInstalledRojoVersion, getInstalledLuauLspVersion, getLatestGitHubRelease } from '../tools/toolUpdateChecker.js';
 
 export class CreateProjectPanel {
   public static currentPanel: CreateProjectPanel | undefined;
@@ -134,11 +135,18 @@ export class CreateProjectPanel {
         Buffer.from(JSON.stringify(config, null, 2)),
       );
 
-      // aftman.toml
+      // aftman.toml — resolve full semver versions
+      const rojoVersion = getInstalledRojoVersion()
+        ?? await getLatestGitHubRelease('rojo-rbx/rojo')
+        ?? '7.4.4';
+      const luauLspVersion = getInstalledLuauLspVersion()
+        ?? await getLatestGitHubRelease('JohnnyMorganz/luau-lsp')
+        ?? '1.34.1';
       const aftmanToml =
         '# Aftman toolchain — managed by LunaIDE\n' +
         '[tools]\n' +
-        'rojo = "rojo-rbx/rojo@7"\n';
+        `rojo = "rojo-rbx/rojo@${rojoVersion}"\n` +
+        `luau-lsp = "JohnnyMorganz/luau-lsp@${luauLspVersion}"\n`;
       await vscode.workspace.fs.writeFile(
         vscode.Uri.joinPath(projectUri, 'aftman.toml'),
         Buffer.from(aftmanToml),
