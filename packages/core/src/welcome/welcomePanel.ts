@@ -169,8 +169,8 @@ export class WelcomePanel {
     <div class="place-card${isActive ? ' active' : ''}" data-place="${safeName}"
          onclick="switchToPlace(${escapeHtml(JSON.stringify(n))})">
       <div class="place-card-icon">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
         </svg>
       </div>
@@ -191,15 +191,37 @@ export class WelcomePanel {
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  :root {
+    --tn-bg: #1a1b26;
+    --tn-bg-dark: #16161e;
+    --tn-bg-highlight: #292e42;
+    --tn-bg-surface: #1f2335;
+    --tn-fg: #c0caf5;
+    --tn-fg-dark: #a9b1d6;
+    --tn-comment: #565f89;
+    --tn-gutter: #3b4261;
+    --tn-blue: #7aa2f7;
+    --tn-cyan: #7dcfff;
+    --tn-purple: #bb9af7;
+    --tn-green: #9ece6a;
+    --tn-red: #f7768e;
+    --tn-orange: #ff9e64;
+    --tn-yellow: #e0af68;
+    --tn-teal: #73daca;
+    --tn-border: #292e42;
+    --tn-border-focus: #3d59a1;
+    --tn-selection: #283457;
+  }
+
   body {
-    background: var(--vscode-editor-background);
-    color: var(--vscode-foreground);
-    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    background: var(--tn-bg);
+    color: var(--tn-fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 13px;
     height: 100vh;
     display: flex;
     flex-direction: column;
-    padding: 52px 64px 40px;
+    padding: 48px 56px 36px;
     overflow: hidden;
     animation: fadeIn 0.3s ease forwards;
     opacity: 0;
@@ -211,8 +233,8 @@ export class WelcomePanel {
   .header {
     display: flex;
     align-items: center;
-    gap: 22px;
-    margin-bottom: 52px;
+    gap: 16px;
+    margin-bottom: 44px;
   }
 
   .app-icon {
@@ -223,17 +245,17 @@ export class WelcomePanel {
   }
 
   .header-text h1 {
-    font-size: 30px;
+    font-size: 26px;
     font-weight: 600;
-    color: var(--vscode-foreground);
-    letter-spacing: 0.18em;
-    margin-bottom: 6px;
+    color: var(--tn-fg);
+    letter-spacing: 0.16em;
+    margin-bottom: 4px;
     line-height: 1;
   }
 
   .header-text p {
-    font-size: 13px;
-    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    color: var(--tn-comment);
     letter-spacing: 0.01em;
   }
 
@@ -241,73 +263,73 @@ export class WelcomePanel {
   .body {
     display: grid;
     grid-template-columns: 1fr 1px 1fr;
-    gap: 0 48px;
+    gap: 0 40px;
     flex: 1;
     min-height: 0;
   }
 
   .divider {
-    background: var(--vscode-widget-border, rgba(255,255,255,0.07));
+    background: var(--tn-border);
     align-self: stretch;
   }
 
   /* ── Section label ── */
   .section-label {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
-    letter-spacing: 0.08em;
-    color: var(--vscode-descriptionForeground);
+    letter-spacing: 0.1em;
+    color: var(--tn-comment);
     text-transform: uppercase;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
 
   /* ── Action rows ── */
   .action-row {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 14px 16px;
-    border-radius: 10px;
+    gap: 12px;
+    padding: 11px 13px;
+    border-radius: 8px;
     cursor: pointer;
     transition: background 0.1s;
-    margin-bottom: 4px;
-    background: var(--vscode-welcomePage-tileBackground, transparent);
-    border: 1px solid var(--vscode-welcomePage-tileBorder, var(--vscode-widget-border, rgba(255,255,255,0.06)));
+    margin-bottom: 3px;
+    background: transparent;
+    border: 1px solid var(--tn-border);
   }
 
   .action-row:hover {
-    background: var(--vscode-welcomePage-tileHoverBackground, var(--vscode-list-hoverBackground));
+    background: var(--tn-bg-highlight);
   }
 
   .action-row:active { opacity: 0.8; }
 
   .action-icon-wrap {
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    color: var(--vscode-icon-foreground, var(--vscode-descriptionForeground));
+    color: var(--tn-comment);
   }
 
   .action-text { flex: 1; }
 
   .action-title {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
-    color: var(--vscode-foreground);
-    margin-bottom: 2px;
+    color: var(--tn-fg);
+    margin-bottom: 1px;
   }
 
   .action-desc {
-    font-size: 11.5px;
-    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    color: var(--tn-comment);
   }
 
   .action-shortcut {
     display: flex;
-    gap: 4px;
+    gap: 3px;
     flex-shrink: 0;
   }
 
@@ -315,17 +337,17 @@ export class WelcomePanel {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: var(--vscode-keybindingLabel-background, rgba(255,255,255,0.08));
-    border: 1px solid var(--vscode-keybindingLabel-border, rgba(255,255,255,0.15));
-    border-radius: 5px;
-    padding: 2px 7px;
-    font-size: 11px;
-    color: var(--vscode-keybindingLabel-foreground, var(--vscode-descriptionForeground));
-    font-family: var(--vscode-font-family);
-    min-width: 22px;
+    background: var(--tn-bg-surface);
+    border: 1px solid var(--tn-gutter);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 10px;
+    color: var(--tn-comment);
+    font-family: inherit;
+    min-width: 18px;
   }
 
-  /* ── Left column bottom: search ── */
+  /* ── Left column ── */
   .left-col {
     display: flex;
     flex-direction: column;
@@ -336,26 +358,26 @@ export class WelcomePanel {
   .search-bar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 11px 14px;
-    background: var(--vscode-input-background, rgba(255,255,255,0.05));
-    border: 1px solid var(--vscode-input-border, rgba(255,255,255,0.1));
-    border-radius: 10px;
+    gap: 9px;
+    padding: 9px 12px;
+    background: var(--tn-bg-surface);
+    border: 1px solid var(--tn-border);
+    border-radius: 8px;
     cursor: pointer;
     transition: border-color 0.1s;
-    margin-top: 20px;
+    margin-top: 16px;
   }
 
   .search-bar:hover {
-    border-color: var(--vscode-focusBorder, rgba(255,255,255,0.2));
+    border-color: var(--tn-border-focus);
   }
 
-  .search-icon { color: var(--vscode-descriptionForeground); flex-shrink: 0; }
+  .search-icon { color: var(--tn-comment); flex-shrink: 0; }
 
   .search-text {
     flex: 1;
-    font-size: 13px;
-    color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
+    font-size: 12px;
+    color: var(--tn-gutter);
   }
 
   /* ── Recent projects ── */
@@ -365,12 +387,12 @@ export class WelcomePanel {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
 
   .view-all {
-    font-size: 12px;
-    color: var(--vscode-textLink-foreground);
+    font-size: 11px;
+    color: var(--tn-blue);
     cursor: pointer;
     text-decoration: none;
   }
@@ -381,87 +403,88 @@ export class WelcomePanel {
   .recent-row {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 12px 8px;
-    border-radius: 10px;
+    gap: 12px;
+    padding: 10px 8px;
+    border-radius: 8px;
     cursor: pointer;
     transition: background 0.1s;
-    border-bottom: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.05));
+    border-bottom: 1px solid var(--tn-bg-highlight);
   }
 
   .recent-row:last-child { border-bottom: none; }
-  .recent-row:hover { background: var(--vscode-list-hoverBackground); }
-  .recent-row:hover .recent-name { color: var(--vscode-textLink-foreground); }
+  .recent-row:hover { background: var(--tn-bg-highlight); }
+  .recent-row:hover .recent-name { color: var(--tn-blue); }
 
   .recent-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    background: var(--vscode-sideBar-background, rgba(255,255,255,0.06));
-    border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.08));
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    background: var(--tn-bg-surface);
+    border: 1px solid var(--tn-border);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 600;
-    color: var(--vscode-foreground);
+    color: var(--tn-fg-dark);
     flex-shrink: 0;
   }
 
   .recent-info { flex: 1; min-width: 0; }
 
   .recent-name {
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 500;
-    color: var(--vscode-foreground);
+    color: var(--tn-fg);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     transition: color 0.1s;
-    margin-bottom: 2px;
+    margin-bottom: 1px;
   }
 
   .recent-path {
-    font-size: 11.5px;
-    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    color: var(--tn-comment);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .show-more {
-    padding: 14px 8px;
-    font-size: 12.5px;
-    color: var(--vscode-descriptionForeground);
+    padding: 12px 8px;
+    font-size: 12px;
+    color: var(--tn-comment);
     cursor: pointer;
     text-align: center;
   }
-  .show-more:hover { color: var(--vscode-foreground); }
+  .show-more:hover { color: var(--tn-fg); }
   .show-more-dots { margin-right: 6px; letter-spacing: 2px; }
 
   /* ── Places section ── */
-  .place-section { margin-bottom: 24px; }
-  .place-grid { display: flex; flex-direction: column; gap: 3px; }
+  .place-section { margin-bottom: 20px; }
+  .place-grid { display: flex; flex-direction: column; gap: 2px; }
   .place-card {
-    display: flex; align-items: center; gap: 12px;
-    padding: 9px 12px; border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 6px; cursor: pointer;
     transition: background 0.1s;
     border: 1px solid transparent;
   }
-  .place-card:hover { background: var(--vscode-list-hoverBackground); }
+  .place-card:hover { background: var(--tn-bg-highlight); }
   .place-card.active {
-    background: var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.08));
-    border-color: var(--vscode-focusBorder, rgba(255,255,255,0.14));
+    background: var(--tn-selection);
+    border-color: var(--tn-border-focus);
   }
   .place-card-icon {
-    color: var(--vscode-descriptionForeground);
+    color: var(--tn-comment);
     flex-shrink: 0; display: flex; align-items: center;
   }
-  .place-card.active .place-card-icon { color: var(--vscode-terminal-ansiBrightBlue, #89b4fa); }
-  .place-card-name { flex: 1; font-size: 13.5px; font-weight: 500; color: var(--vscode-foreground); }
+  .place-card.active .place-card-icon { color: var(--tn-blue); }
+  .place-card-name { flex: 1; font-size: 13px; font-weight: 500; color: var(--tn-fg); }
   .place-badge {
-    font-size: 10px; padding: 2px 6px; border-radius: 3px;
-    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+    font-size: 9px; padding: 2px 5px; border-radius: 3px;
+    background: var(--tn-blue); color: var(--tn-bg-dark);
+    font-weight: 600;
   }
 </style>
 </head>
@@ -470,11 +493,12 @@ export class WelcomePanel {
   <!-- Header -->
   <div class="header">
     <div class="app-icon">
-      <svg width="38" height="38" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <svg width="30" height="30" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="mg" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#74C7EC"/>
-            <stop offset="100%" stop-color="#B4A7D6"/>
+            <stop offset="0%" stop-color="#7dcfff"/>
+            <stop offset="50%" stop-color="#7aa2f7"/>
+            <stop offset="100%" stop-color="#bb9af7"/>
           </linearGradient>
         </defs>
         <path d="M 60 20 A 30 30 0 1 0 80 75 A 35 35 0 1 1 60 20 Z" fill="url(#mg)"/>
@@ -496,7 +520,7 @@ export class WelcomePanel {
 
         <div class="action-row" onclick="newProject()">
           <div class="action-icon-wrap">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
               <line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
@@ -513,7 +537,7 @@ export class WelcomePanel {
 
         <div class="action-row" onclick="openProject()">
           <div class="action-icon-wrap">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
           </div>
@@ -528,7 +552,7 @@ export class WelcomePanel {
 
         <div class="action-row" onclick="cloneRepo()">
           <div class="action-icon-wrap">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
               <path d="M6 9v6M15.7 7.3A6 6 0 0 1 18 15"/>
             </svg>
@@ -543,7 +567,7 @@ export class WelcomePanel {
 
       <!-- Search bar -->
       <div class="search-bar" onclick="openSearch()">
-        <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
         <span class="search-text">Search files, commands, or help...</span>
@@ -595,7 +619,7 @@ export class WelcomePanel {
     }
   });
 
-  // ⌘N / ⌘O keyboard shortcuts
+  // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if (e.metaKey && e.key === 'n') { e.preventDefault(); newProject(); }
     if (e.metaKey && e.key === 'o') { e.preventDefault(); openProject(); }

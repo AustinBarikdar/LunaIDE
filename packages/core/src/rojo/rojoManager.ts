@@ -11,7 +11,7 @@ export class RojoManager implements vscode.Disposable {
   private outputChannel: vscode.OutputChannel;
   private status: RojoStatus;
   private state: RojoConnectionState = 'disconnected';
-  private placeDir: string | undefined;
+  private suppressWatcherRestart = false;
   private disposables: vscode.Disposable[] = [];
 
   constructor(private context: vscode.ExtensionContext) {
@@ -91,8 +91,9 @@ export class RojoManager implements vscode.Disposable {
     await this.start();
   }
 
-  setPlaceDir(dir: string): void {
-    this.placeDir = dir;
+  /** Suppress the file-watcher restart (set before deliberately rewriting project config). */
+  setSuppressWatcherRestart(suppress: boolean): void {
+    this.suppressWatcherRestart = suppress;
   }
 
   getState(): RojoConnectionState {
@@ -272,6 +273,10 @@ export class RojoManager implements vscode.Disposable {
   }
 
   private onProjectFileChanged(): void {
+    if (this.suppressWatcherRestart) {
+      this.log('Project file changed (suppressed — deliberate rewrite).');
+      return;
+    }
     this.log('Project file changed, restarting Rojo...');
     this.restart();
   }
@@ -291,7 +296,7 @@ export class RojoManager implements vscode.Disposable {
   }
 
   private getEffectiveCwd(): string | undefined {
-    return this.placeDir ?? this.getWorkspaceFolder();
+    return this.getWorkspaceFolder();
   }
 
   private getWorkspaceFolder(): string | undefined {

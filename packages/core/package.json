@@ -84,6 +84,10 @@
       {
         "command": "lunaide.switchPlace",
         "title": "LunaIDE: Switch Place"
+      },
+      {
+        "command": "lunaide.editProfile",
+        "title": "LunaIDE: Edit Project Profile"
       }
     ],
     "configuration": {
@@ -141,6 +145,13 @@
         }
       }
     },
+    "themes": [
+      {
+        "label": "LunaIDE Tokyo Night",
+        "uiTheme": "vs-dark",
+        "path": "./assets/themes/lunaide-tokyo-night.json"
+      }
+    ],
     "grammars": [
       {
         "language": "luau",

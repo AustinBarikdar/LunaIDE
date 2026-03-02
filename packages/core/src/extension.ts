@@ -13,9 +13,87 @@ import { ExplorerTreeView } from './explorer/explorerTreeView.js';
 import { PropertyInspectorPanel } from './explorer/propertyInspectorPanel.js';
 import { registerScriptTemplates } from './templates/scriptTemplates.js';
 import { WelcomePanel, PlaceData } from './welcome/welcomePanel.js';
+import { CreateProjectPanel } from './welcome/createProjectPanel.js';
 import { SetupPanel } from './setup/setupPanel.js';
 import { AgentConnector, AGENT_IDS, AGENT_LABELS } from './mcp/agentConnector.js';
 import { PlacesTreeView } from './places/placesTreeView.js';
+
+// ── Built-in project profiles ────────────────────────────────────────────────
+export interface ProfileService {
+  name: string;
+  src: string;
+}
+
+export interface Profile {
+  name: string;
+  services: Record<string, ProfileService>;
+}
+
+export const BUILT_IN_PROFILES: Record<string, Profile> = {
+  Standard: {
+    name: 'Standard',
+    services: {
+      ServerScriptService: { name: 'Server', src: 'src/server' },
+      ReplicatedStorage: { name: 'Shared', src: 'src/shared' },
+      'StarterPlayer.StarterPlayerScripts': { name: 'Client', src: 'src/client' },
+    },
+  },
+  Complete: {
+    name: 'Complete',
+    services: {
+      ServerScriptService: { name: 'Server', src: 'src/server' },
+      ServerStorage: { name: 'ServerStorage', src: 'src/serverStorage' },
+      ReplicatedStorage: { name: 'Shared', src: 'src/shared' },
+      ReplicatedFirst: { name: 'ReplicatedFirst', src: 'src/replicatedFirst' },
+      'StarterPlayer.StarterPlayerScripts': { name: 'Client', src: 'src/client' },
+      'StarterPlayer.StarterCharacterScripts': { name: 'CharacterScripts', src: 'src/characterScripts' },
+      StarterGui: { name: 'StarterGui', src: 'src/starterGui' },
+      StarterPack: { name: 'StarterPack', src: 'src/starterPack' },
+      Workspace: { name: 'Workspace', src: 'src/workspace' },
+      Lighting: { name: 'Lighting', src: 'src/lighting' },
+      SoundService: { name: 'SoundService', src: 'src/soundService' },
+    },
+  },
+  Minimal: {
+    name: 'Minimal',
+    services: {
+      ReplicatedStorage: { name: 'Shared', src: 'src/shared' },
+      ServerScriptService: { name: 'Server', src: 'src/server' },
+    },
+  },
+};
+
+// ── Places config helpers ────────────────────────────────────────────────────
+export function readPlacesConfig(workspaceFolder: string): Record<string, { placeId?: number }> {
+  const cfgPath = path.join(workspaceFolder, '.lunaide', 'places.json');
+  try {
+    return JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+export function writePlacesConfig(workspaceFolder: string, config: Record<string, { placeId?: number }>): void {
+  const dir = path.join(workspaceFolder, '.lunaide');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'places.json'), JSON.stringify(config, null, 2));
+}
+
+// ── Profile helpers ──────────────────────────────────────────────────────────
+export function readProfile(workspaceFolder: string): Profile {
+  const profilePath = path.join(workspaceFolder, '.lunaide', 'profile.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(profilePath, 'utf-8'));
+    if (data && data.services) return data as Profile;
+  } catch { /* fall through */ }
+  return BUILT_IN_PROFILES['Standard'];
+}
+
+function writeProfile(workspaceFolder: string, profile: Profile): void {
+  const dir = path.join(workspaceFolder, '.lunaide');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'profile.json'), JSON.stringify(profile, null, 2));
+}
 
 let rojoManager: RojoManager;
 let luauClient: LuauClient;
@@ -53,6 +131,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const startupEditorInspect = cfg.inspect('workbench.startupEditor');
   if (!startupEditorInspect?.globalValue || startupEditorInspect.globalValue === 'welcomePage') {
     void cfg.update('workbench.startupEditor', 'none', vscode.ConfigurationTarget.Global);
+  }
+
+  // Set Tokyo Night theme on first launch
+  const themeApplied = context.globalState.get<boolean>('lunaide.themeApplied', false);
+  if (!themeApplied) {
+    void cfg.update('workbench.colorTheme', 'LunaIDE Tokyo Night', vscode.ConfigurationTarget.Global);
+    void context.globalState.update('lunaide.themeApplied', true);
   }
   // Hide tab bar globally — restored per-workspace when a project opens
   const showTabsInspect = cfg.inspect('workbench.editor.showTabs');
@@ -245,7 +330,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             validateInput: (v) => v.trim() ? undefined : 'Name cannot be empty',
           });
           if (newName?.trim()) {
-            await createPlace(workspaceFolder!, newName.trim());
+            const placeIdStr = await vscode.window.showInputBox({
+              title: 'Place ID (optional)',
+              prompt: 'Roblox Place ID — find this in your game\'s URL on roblox.com',
+              validateInput: (v) => {
+                if (!v.trim()) return undefined;
+                return /^\d+$/.test(v.trim()) ? undefined : 'Must be a numeric Place ID';
+              },
+            });
+            const placeId = placeIdStr?.trim() ? parseInt(placeIdStr.trim(), 10) : undefined;
+            await createPlace(workspaceFolder!, newName.trim(), placeId);
             places.push(newName.trim());
             activePlace = newName.trim();
           } else {
@@ -256,7 +350,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
       await context.workspaceState.update('lunaide.activePlace', activePlace);
-      rojoManager.setPlaceDir(path.join(workspaceFolder!, activePlace));
+      writeProjectConfig(workspaceFolder!, activePlace);
 
       placeStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
       placeStatusBar.command = 'lunaide.switchPlace';
@@ -342,7 +436,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               validateInput: (v) => v.trim() ? undefined : 'Name cannot be empty',
             });
             if (!newName?.trim()) return;
-            await createPlace(workspaceFolder!, newName.trim());
+            const placeIdStr = await vscode.window.showInputBox({
+              title: 'Place ID (optional)',
+              prompt: 'Roblox Place ID — find this in your game\'s URL on roblox.com',
+              validateInput: (v) => {
+                if (!v.trim()) return undefined;
+                return /^\d+$/.test(v.trim()) ? undefined : 'Must be a numeric Place ID';
+              },
+            });
+            const placeId = placeIdStr?.trim() ? parseInt(placeIdStr.trim(), 10) : undefined;
+            await createPlace(workspaceFolder!, newName.trim(), placeId);
             allPlaces = detectPlaces(workspaceFolder!);
             selected = newName.trim();
           } else {
@@ -351,8 +454,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
 
         await context.workspaceState.update('lunaide.activePlace', selected);
-        rojoManager.setPlaceDir(path.join(workspaceFolder!, selected));
+        rojoManager.setSuppressWatcherRestart(true);
+        writeProjectConfig(workspaceFolder!, selected);
         await rojoManager.restart();
+        rojoManager.setSuppressWatcherRestart(false);
         if (placeStatusBar) placeStatusBar.text = `$(folder) ${selected}`;
         placesTreeProvider?.refresh();
         WelcomePanel.refreshPlaces(allPlaces, selected);
@@ -416,6 +521,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.commands.registerCommand('robloxIde.opencloud.clearApiKey', async () => {
         await openCloudClient.clearApiKey();
         vscode.window.showInformationMessage('Open Cloud API key cleared.');
+      }),
+
+      // Profile commands
+      vscode.commands.registerCommand('lunaide.editProfile', async () => {
+        const profilePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceFolder), '.lunaide', 'profile.json');
+        try {
+          await vscode.workspace.fs.stat(profilePath);
+        } catch {
+          // Write current profile so user has something to edit
+          const profile = readProfile(workspaceFolder);
+          writeProfile(workspaceFolder, profile);
+        }
+        const doc = await vscode.workspace.openTextDocument(profilePath);
+        await vscode.window.showTextDocument(doc);
       }),
 
       // Explorer commands
@@ -483,56 +602,76 @@ async function openInstructions(): Promise<void> {
   await vscode.window.showTextDocument(doc);
 }
 
-async function createPlace(workspaceFolder: string, name: string): Promise<void> {
+async function createPlace(workspaceFolder: string, name: string, placeId?: number): Promise<void> {
+  const profile = readProfile(workspaceFolder);
   const placeDir = path.join(workspaceFolder, name);
   const placeUri = vscode.Uri.file(placeDir);
-  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/server'));
-  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/client'));
-  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/shared'));
-  await vscode.workspace.fs.writeFile(
-    vscode.Uri.joinPath(placeUri, 'src/server/init.server.luau'),
-    Buffer.from('-- Server entry point\n')
-  );
-  await vscode.workspace.fs.writeFile(
-    vscode.Uri.joinPath(placeUri, 'src/client/init.client.luau'),
-    Buffer.from('-- Client entry point\n')
-  );
-  const config = {
-    name,
-    tree: {
-      $className: 'DataModel',
-      ServerScriptService: {
-        $className: 'ServerScriptService',
-        Server: { $path: 'src/server' },
-      },
-      ReplicatedStorage: {
-        $className: 'ReplicatedStorage',
-        Shared: { $path: 'src/shared' },
-      },
-      StarterPlayer: {
-        $className: 'StarterPlayer',
-        StarterPlayerScripts: {
-          $className: 'StarterPlayerScripts',
-          Client: { $path: 'src/client' },
-        },
-      },
-    },
-  };
-  await vscode.workspace.fs.writeFile(
-    vscode.Uri.joinPath(placeUri, 'default.project.json'),
-    Buffer.from(JSON.stringify(config, null, 2))
-  );
+
+  // Create all directories from the profile
+  for (const svc of Object.values(profile.services)) {
+    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, svc.src));
+  }
+
+  // Create entry-point scripts for common services
+  if (profile.services['ServerScriptService']) {
+    const serverSrc = profile.services['ServerScriptService'].src;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(placeUri, `${serverSrc}/init.server.luau`),
+      Buffer.from('-- Server entry point\n')
+    );
+  }
+  if (profile.services['StarterPlayer.StarterPlayerScripts']) {
+    const clientSrc = profile.services['StarterPlayer.StarterPlayerScripts'].src;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(placeUri, `${clientSrc}/init.client.luau`),
+      Buffer.from('-- Client entry point\n')
+    );
+  }
+
+  // Update places.json with the optional placeId
+  const placesConfig = readPlacesConfig(workspaceFolder);
+  placesConfig[name] = placeId ? { placeId } : {};
+  writePlacesConfig(workspaceFolder, placesConfig);
 }
 
 function detectPlaces(workspaceFolder: string): string[] {
-  if (fs.existsSync(path.join(workspaceFolder, 'default.project.json'))) return [];
   try {
     return fs.readdirSync(workspaceFolder, { withFileTypes: true })
-      .filter(e => e.isDirectory() &&
-        fs.existsSync(path.join(workspaceFolder, e.name, 'default.project.json')))
+      .filter(e => e.isDirectory() && !e.name.startsWith('.') &&
+        fs.existsSync(path.join(workspaceFolder, e.name, 'src')))
       .map(e => e.name)
       .sort();
   } catch { return []; }
+}
+
+function writeProjectConfig(workspaceFolder: string, placeName: string): void {
+  const profile = readProfile(workspaceFolder);
+  const tree: Record<string, any> = { $className: 'DataModel' };
+
+  for (const [serviceKey, svc] of Object.entries(profile.services)) {
+    const parts = serviceKey.split('.');
+    if (parts.length === 2) {
+      // Nested service, e.g. "StarterPlayer.StarterPlayerScripts"
+      const [parent, child] = parts;
+      if (!tree[parent]) tree[parent] = { $className: parent };
+      tree[parent][child] = {
+        $className: child,
+        [svc.name]: { $path: `${placeName}/${svc.src}` },
+      };
+    } else {
+      // Top-level service
+      tree[serviceKey] = {
+        $className: serviceKey,
+        [svc.name]: { $path: `${placeName}/${svc.src}` },
+      };
+    }
+  }
+
+  const config = { name: placeName, tree };
+  fs.writeFileSync(
+    path.join(workspaceFolder, 'default.project.json'),
+    JSON.stringify(config, null, 2)
+  );
 }
 
 function getWorkspaceRoot(): string | undefined {
@@ -568,191 +707,8 @@ function registerWelcomeCommands(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('lunaide.createProject', async () => {
-      // Step 1: Project name
-      const projectName = await vscode.window.showInputBox({
-        title: 'New Roblox Project',
-        prompt: 'Project name',
-        value: 'MyRobloxGame',
-        validateInput: (v) => v.trim() ? undefined : 'Name cannot be empty',
-      });
-      if (!projectName?.trim()) return;
-
-      // Step 2: Location
-      const parentFolderUris = await vscode.window.showOpenDialog({
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-        openLabel: 'Create Project Here',
-        title: 'Choose project location',
-      });
-      if (!parentFolderUris || parentFolderUris.length === 0) return;
-
-      // Step 3: Rojo setup
-      const rojoChoice = await vscode.window.showQuickPick(
-        [
-          {
-            label: '$(check) Full Rojo setup',
-            description: 'Creates src/server, src/client, src/shared with default.project.json',
-            value: 'rojo',
-          },
-          {
-            label: '$(circle-slash) Minimal — no Rojo',
-            description: 'Empty folder with a bare default.project.json',
-            value: 'minimal',
-          },
-          {
-            label: '$(multiple-windows) Multi-place Game',
-            description: 'Multiple place folders (e.g. Main, Lobby) each with their own Rojo setup',
-            value: 'multiplace',
-          },
-        ],
-        { title: 'New Roblox Project', placeHolder: 'Initialize Rojo project structure?' }
-      );
-      if (!rojoChoice) return;
-
-      const parentUri = parentFolderUris[0];
-      const projectUri = vscode.Uri.joinPath(parentUri, projectName.trim());
-
-      try {
-        await vscode.workspace.fs.createDirectory(projectUri);
-
-        if (rojoChoice.value === 'rojo') {
-          // Full Rojo structure — wrapped in StartPlace/ so the project is
-          // place-based from the start and additional places can be added later.
-          const placeUri = vscode.Uri.joinPath(projectUri, 'StartPlace');
-          await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/server'));
-          await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/client'));
-          await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/shared'));
-
-          // Stub scripts
-          const serverScript = Buffer.from('-- Server entry point\n');
-          const clientScript = Buffer.from('-- Client entry point\n');
-          await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(placeUri, 'src/server/init.server.luau'), serverScript);
-          await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(placeUri, 'src/client/init.client.luau'), clientScript);
-
-          const rojoConfig = {
-            name: 'StartPlace',
-            tree: {
-              $className: 'DataModel',
-              ServerScriptService: {
-                $className: 'ServerScriptService',
-                Server: { $path: 'src/server' },
-              },
-              ReplicatedStorage: {
-                $className: 'ReplicatedStorage',
-                Shared: { $path: 'src/shared' },
-              },
-              StarterPlayer: {
-                $className: 'StarterPlayer',
-                StarterPlayerScripts: {
-                  $className: 'StarterPlayerScripts',
-                  Client: { $path: 'src/client' },
-                },
-              },
-            },
-          };
-          await vscode.workspace.fs.writeFile(
-            vscode.Uri.joinPath(placeUri, 'default.project.json'),
-            Buffer.from(JSON.stringify(rojoConfig, null, 2))
-          );
-
-          // aftman.toml at project root
-          const aftmanToml =
-            '# Aftman toolchain — managed by LunaIDE\n' +
-            '[tools]\n' +
-            'rojo = "rojo-rbx/rojo@7"\n';
-          await vscode.workspace.fs.writeFile(
-            vscode.Uri.joinPath(projectUri, 'aftman.toml'),
-            Buffer.from(aftmanToml)
-          );
-        } else if (rojoChoice.value === 'multiplace') {
-          // Step 1: StartPlace name
-          const startPlaceName = await vscode.window.showInputBox({
-            title: 'Multi-place Game — StartPlace',
-            prompt: 'Name for the StartPlace (entry point for players)',
-            value: 'StartPlace',
-            validateInput: (v) => v.trim() ? undefined : 'Name cannot be empty',
-          });
-          if (!startPlaceName?.trim()) return;
-
-          // Step 2: Additional places (optional)
-          const additionalInput = await vscode.window.showInputBox({
-            title: 'Multi-place Game — Additional Places',
-            prompt: 'Additional place names, comma-separated (leave empty for none)',
-            value: '',
-          });
-          const additionalPlaces = additionalInput
-            ? additionalInput.split(',').map((s) => s.trim()).filter(Boolean)
-            : [];
-          const placeNames = [startPlaceName.trim(), ...additionalPlaces];
-
-          const makePlaceConfig = (name: string) => ({
-            name,
-            tree: {
-              $className: 'DataModel',
-              ServerScriptService: {
-                $className: 'ServerScriptService',
-                Server: { $path: 'src/server' },
-              },
-              ReplicatedStorage: {
-                $className: 'ReplicatedStorage',
-                Shared: { $path: 'src/shared' },
-              },
-              StarterPlayer: {
-                $className: 'StarterPlayer',
-                StarterPlayerScripts: {
-                  $className: 'StarterPlayerScripts',
-                  Client: { $path: 'src/client' },
-                },
-              },
-            },
-          });
-
-          for (const placeName of placeNames) {
-            const placeUri = vscode.Uri.joinPath(projectUri, placeName);
-            await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/server'));
-            await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/client'));
-            await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, 'src/shared'));
-            await vscode.workspace.fs.writeFile(
-              vscode.Uri.joinPath(placeUri, 'src/server/init.server.luau'),
-              Buffer.from('-- Server entry point\n')
-            );
-            await vscode.workspace.fs.writeFile(
-              vscode.Uri.joinPath(placeUri, 'src/client/init.client.luau'),
-              Buffer.from('-- Client entry point\n')
-            );
-            await vscode.workspace.fs.writeFile(
-              vscode.Uri.joinPath(placeUri, 'default.project.json'),
-              Buffer.from(JSON.stringify(makePlaceConfig(placeName), null, 2))
-            );
-          }
-
-          // aftman.toml at project root
-          const aftmanToml =
-            '# Aftman toolchain — managed by LunaIDE\n' +
-            '[tools]\n' +
-            'rojo = "rojo-rbx/rojo@7"\n';
-          await vscode.workspace.fs.writeFile(
-            vscode.Uri.joinPath(projectUri, 'aftman.toml'),
-            Buffer.from(aftmanToml)
-          );
-        } else {
-          // Minimal
-          const minimalConfig = {
-            name: projectName.trim(),
-            tree: { $className: 'DataModel' },
-          };
-          await vscode.workspace.fs.writeFile(
-            vscode.Uri.joinPath(projectUri, 'default.project.json'),
-            Buffer.from(JSON.stringify(minimalConfig, null, 2))
-          );
-        }
-
-        vscode.commands.executeCommand('vscode.openFolder', projectUri, false);
-      } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to create project: ${err.message}`);
-      }
+    vscode.commands.registerCommand('lunaide.createProject', () => {
+      void CreateProjectPanel.createOrShow(context.extensionUri);
     })
   );
 }
