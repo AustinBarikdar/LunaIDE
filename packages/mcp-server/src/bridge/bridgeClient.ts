@@ -204,6 +204,16 @@ export class BridgeClient {
         return data.data;
     }
 
+    async captureScreenshot(delay?: number): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/capture-screenshot', { delay });
+        return data.data;
+    }
+
+    async simulateInput(action: string, key?: string, x?: number, y?: number, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/simulate-input', { action, key, x, y, studioId });
+        return data.data;
+    }
+
     // --- OpenCloud operations ---
 
     async publishPlace(universeId: number, placeId: number, filePath: string, versionType?: string): Promise<unknown> {

@@ -28,7 +28,8 @@ export type StudioCommandType =
   | 'delete_instance'
   | 'set_instance_properties'
   | 'move_rename_instance'
-  | 'manage_tags';
+  | 'manage_tags'
+  | 'simulate_input';
 
 export interface StudioOutputEntry {
   timestamp: number;

@@ -32,6 +32,12 @@ import { deleteInstanceTool } from './deleteInstance.js';
 import { setInstancePropertiesTool } from './setInstanceProperties.js';
 import { moveRenameInstanceTool } from './moveRenameInstance.js';
 import { manageTagsTool } from './manageTags.js';
+import { simulateInputTool } from './simulateInput.js';
+import { captureScreenshotTool } from './captureScreenshot.js';
+
+export type ToolContent =
+    | { type: 'text'; text: string }
+    | { type: 'image'; data: string; mimeType: string };
 
 export interface ToolDefinition {
     name: string;
@@ -42,7 +48,7 @@ export interface ToolDefinition {
         required?: string[];
     };
     handler: (args: Record<string, unknown>) => Promise<{
-        content: Array<{ type: 'text'; text: string }>;
+        content: ToolContent[];
         isError?: boolean;
     }>;
 }
@@ -86,6 +92,8 @@ export function createTools(bridge: BridgeClient, lockManager: LockManager): Too
         setInstancePropertiesTool(bridge),
         moveRenameInstanceTool(bridge),
         manageTagsTool(bridge),
+        simulateInputTool(bridge),
+        captureScreenshotTool(bridge),
         // OpenCloud
         publishPlaceTool(bridge),
         manageDatastoreTool(bridge),

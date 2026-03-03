@@ -640,6 +640,96 @@ poller:registerHandler("manage_tags", function(payload)
 	end
 end)
 
+local VirtualUser = game:GetService("VirtualUser")
+
+poller:registerHandler("simulate_input", function(payload)
+	local action = payload and payload.action
+	if not action then
+		return false, "Missing 'action' in payload"
+	end
+
+	-- Wait up to 5 seconds for play mode to become active (handles async startup)
+	if not RunService:IsRunning() then
+		local waited = 0
+		while not RunService:IsRunning() and waited < 5 do
+			task.wait(0.25)
+			waited = waited + 0.25
+		end
+		if not RunService:IsRunning() then
+			return false, "simulate_input only works during play mode. Start a playtest first."
+		end
+	end
+
+	-- Default mouse position to viewport center
+	local camera = workspace.CurrentCamera
+	local viewportSize = camera and camera.ViewportSize or Vector2.new(800, 600)
+	local x = payload.x or math.floor(viewportSize.X / 2)
+	local y = payload.y or math.floor(viewportSize.Y / 2)
+
+	local ok, err = pcall(function()
+		if action == "click" then
+			VirtualUser:ClickButton1(Vector2.new(x, y))
+
+		elseif action == "button1_down" then
+			VirtualUser:Button1Down(Vector2.new(x, y))
+
+		elseif action == "button1_up" then
+			VirtualUser:Button1Up(Vector2.new(x, y))
+
+		elseif action == "button2_down" then
+			VirtualUser:Button2Down(Vector2.new(x, y))
+
+		elseif action == "button2_up" then
+			VirtualUser:Button2Up(Vector2.new(x, y))
+
+		elseif action == "move_mouse" then
+			VirtualUser:MoveMouse(Vector2.new(x, y))
+
+		elseif action == "type_key" then
+			local keyName = payload.key
+			if not keyName then
+				error("Missing 'key' for type_key action")
+			end
+			local keyCode = Enum.KeyCode[keyName]
+			if not keyCode then
+				error("Invalid KeyCode: " .. tostring(keyName))
+			end
+			VirtualUser:TypeKey(keyCode)
+
+		elseif action == "key_down" or action == "set_key_down" then
+			local keyName = payload.key
+			if not keyName then
+				error("Missing 'key' for " .. action .. " action")
+			end
+			local keyCode = Enum.KeyCode[keyName]
+			if not keyCode then
+				error("Invalid KeyCode: " .. tostring(keyName))
+			end
+			VirtualUser:SetKeyDown(keyCode)
+
+		elseif action == "key_up" or action == "set_key_up" then
+			local keyName = payload.key
+			if not keyName then
+				error("Missing 'key' for " .. action .. " action")
+			end
+			local keyCode = Enum.KeyCode[keyName]
+			if not keyCode then
+				error("Invalid KeyCode: " .. tostring(keyName))
+			end
+			VirtualUser:SetKeyUp(keyCode)
+
+		else
+			error("Unknown action: " .. tostring(action))
+		end
+	end)
+
+	if not ok then
+		return false, tostring(err)
+	end
+
+	return true, { action = action, key = payload.key, x = x, y = y }
+end)
+
 -- Handshake with IDE
 local function performHandshake(): boolean
 	local handshakeData = HttpService:JSONEncode({

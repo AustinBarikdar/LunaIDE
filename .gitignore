@@ -9,6 +9,11 @@ RobloxIDE-dist/
 *.js.map
 *.d.ts.map
 
+# Claude
+CLAUDE.md
+.claude/
+.claude-flow/
+
 # OS
 .DS_Store
 Thumbs.db

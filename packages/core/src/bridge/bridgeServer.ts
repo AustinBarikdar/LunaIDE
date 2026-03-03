@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
+import { exec } from 'child_process';
+import * as os from 'os';
 import { getBridgePortFile, INSTRUCTIONS_FILE, LUAU_EXTENSIONS, ROJO_PROJECT_FILE } from '@roblox-ide/shared';
 import { SessionManager } from '../sessions/sessionManager.js';
 import { LuauClient } from '../luau/luauClient.js';
@@ -178,6 +180,12 @@ export class BridgeServer implements vscode.Disposable {
             }
             else if (method === 'POST' && pathname === '/studio/manage-tags') {
                 result = await this.handleManageTags(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/simulate-input') {
+                result = await this.handleSimulateInput(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/capture-screenshot') {
+                result = await this.handleCaptureScreenshot(body);
             }
             // OpenCloud
             else if (method === 'POST' && pathname === '/opencloud/publish') {
@@ -593,6 +601,7 @@ end
             let scriptOutput: string[] = [];
             let scriptError = '';
             let isTimeout = false;
+            let doneFound = false;
 
             while (Date.now() < deadline) {
                 await new Promise((r) => setTimeout(r, 500));
@@ -602,6 +611,7 @@ end
                 // Check for completion signal
                 const doneIdx = allMessages.findIndex((m) => m.includes('__LUNAIDE_SCRIPT_DONE__'));
                 if (doneIdx >= 0) {
+                    doneFound = true;
                     // Collect all output before done signal
                     for (const entry of output) {
                         if (entry.message.includes('__LUNAIDE_SCRIPT_DONE__')) break;
@@ -615,7 +625,7 @@ end
                 }
             }
 
-            if (Date.now() >= deadline) {
+            if (!doneFound) {
                 isTimeout = true;
                 // Collect whatever output we have
                 const output = this.studioManager.getOutput(studioId, beforeTs);
@@ -768,6 +778,157 @@ end
                 action: body.action,
                 tag: body.tag,
                 path: body.path,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleCaptureScreenshot(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const delay = Math.min(Math.max((body.delay as number) || 0, 0), 5);
+
+        try {
+            // 1. Find Roblox Studio's largest window using kCGWindowListOptionAll.
+            //    This works without Screen Recording permission — it only filters
+            //    window *names*, not owner process names.
+            const studioWindow = await this.findStudioWindow();
+            if (!studioWindow) {
+                return { success: false, error: 'Could not find Roblox Studio window. Is Studio open?' };
+            }
+
+            // 2. Optional delay before capturing
+            if (delay > 0) {
+                await new Promise((r) => setTimeout(r, delay * 1000));
+            }
+
+            // 3. Prepare output path
+            const timestamp = Date.now();
+            const captureDir = path.join(this.workspaceRoot, '.lunaide', 'captures');
+            if (!fs.existsSync(captureDir)) {
+                fs.mkdirSync(captureDir, { recursive: true });
+            }
+            const filePath = path.join(captureDir, `capture-${timestamp}.png`);
+
+            // 4. Capture just the Studio window by its window ID.
+            //    -l <id>: capture only that window (not the whole display)
+            //    -o: omit window shadow so we get clean window-only pixels
+            //    -x: no shutter sound
+            //    Requires Screen Recording permission for LunaIDE in System Settings.
+            try {
+                await this.execPromise(`screencapture -l ${studioWindow.windowId} -o -x "${filePath}"`);
+            } catch (captureErr) {
+                const msg = captureErr instanceof Error ? captureErr.message : String(captureErr);
+                return {
+                    success: false,
+                    error:
+                        `Window capture failed (${msg}). ` +
+                        'Grant Screen Recording permission to LunaIDE in ' +
+                        'System Settings > Privacy & Security > Screen Recording, then restart LunaIDE.',
+                };
+            }
+
+            if (!fs.existsSync(filePath)) {
+                return {
+                    success: false,
+                    error:
+                        'Capture produced no file. Grant Screen Recording permission to LunaIDE in ' +
+                        'System Settings > Privacy & Security > Screen Recording, then restart LunaIDE.',
+                };
+            }
+
+            // 5. Read as base64 and extract PNG dimensions from header, then delete
+            const buffer = fs.readFileSync(filePath);
+            const base64 = buffer.toString('base64');
+            try { fs.unlinkSync(filePath); } catch { /* best effort */ }
+
+            let width: number | undefined;
+            let height: number | undefined;
+            if (buffer.length > 24) {
+                width = buffer.readUInt32BE(16);
+                height = buffer.readUInt32BE(20);
+            }
+
+            return { success: true, data: { base64, width, height, timestamp } };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private findStudioWindow(): Promise<{ windowId: string; bounds: { x: number; y: number; width: number; height: number } } | null> {
+        // kCGWindowListOptionAll includes every window (on-screen + off-screen).
+        // Unlike kCGWindowListOptionOnScreenOnly, it does NOT require Screen Recording
+        // permission to return windows from other processes — it only hides the
+        // window *title* (kCGWindowName), not the owner process name.
+        // We pick the Roblox Studio window with the largest area (the main viewport).
+        const swiftCode = `import CoreGraphics
+let opts = CGWindowListOption(arrayLiteral: .optionAll)
+guard let wins = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else { exit(1) }
+var bestWid = 0, bestArea = 0, bestX = 0, bestY = 0, bestW = 0, bestH = 0
+for w in wins {
+    guard (w["kCGWindowOwnerName"] as? String) == "Roblox Studio" else { continue }
+    guard let b = w["kCGWindowBounds"] as? [String: Any] else { continue }
+    let x = b["X"] as? Int ?? 0, y = b["Y"] as? Int ?? 0
+    let width = b["Width"] as? Int ?? 0, height = b["Height"] as? Int ?? 0
+    let area = width * height
+    if area > bestArea {
+        bestArea = area
+        bestWid = w["kCGWindowNumber"] as? Int ?? 0
+        bestX = x; bestY = y; bestW = width; bestH = height
+    }
+}
+if bestWid > 0 { print("\\(bestWid),\\(bestX),\\(bestY),\\(bestW),\\(bestH)") }`;
+
+        const tmpFile = path.join(os.tmpdir(), `lunaide-wid-${Date.now()}.swift`);
+
+        return new Promise((resolve) => {
+            fs.writeFileSync(tmpFile, swiftCode);
+            exec(`swift "${tmpFile}"`, (err, stdout) => {
+                try { fs.unlinkSync(tmpFile); } catch { /* best effort */ }
+                if (err || !stdout.trim()) { resolve(null); return; }
+                const parts = stdout.trim().split(',');
+                if (parts.length === 5) {
+                    resolve({
+                        windowId: parts[0],
+                        bounds: {
+                            x: parseInt(parts[1], 10),
+                            y: parseInt(parts[2], 10),
+                            width: parseInt(parts[3], 10),
+                            height: parseInt(parts[4], 10),
+                        },
+                    });
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    private execPromise(command: string): Promise<string> {
+        return new Promise((resolve, reject) => {
+            exec(command, (err, stdout, stderr) => {
+                if (err) {
+                    reject(new Error(`Command failed: ${err.message}${stderr ? '\n' + stderr : ''}`));
+                } else {
+                    resolve(stdout);
+                }
+            });
+        });
+    }
+
+    private async handleSimulateInput(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'simulate_input', {
+                action: body.action,
+                key: body.key,
+                x: body.x,
+                y: body.y,
             });
             return { success: true, data: result };
         } catch (err) {
