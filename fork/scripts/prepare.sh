@@ -156,8 +156,50 @@ data = open(p, 'rb').read()
 for old in [b'default:\"welcomePage\"', b'default:\"welcomePageInEmptyWorkbench\"']:
     new = b'default:\"none\"' + b' ' * (len(old) - len(b'default:\"none\"'))
     data = data.replace(old, new)
+# Shrink activity bar JS layout width (48 -> 40)
+data = data.replace(b'minimumWidth=48,this.maximumWidth=48', b'minimumWidth=40,this.maximumWidth=40')
 open(p, 'wb').write(data)
 " "$WORKBENCH_JS"
+
+# Step 5.4b: Shrink activity bar (48px → 40px) + rounded tabs
+echo "Patching activity bar size and tab styling..."
+WORKBENCH_CSS="$APP_DIR/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css"
+python3 -c "
+import sys
+p = sys.argv[1]
+data = open(p, 'r', encoding='utf-8').read()
+# Shrink activitybar width
+data = data.replace('activitybar{width:48px;', 'activitybar{width:40px;')
+# Shrink icon container size
+data = data.replace('width:48px;height:48px;', 'width:40px;height:40px;')
+# Shrink icon font size
+data = data.replace('.action-label.codicon{font-size:24px;', '.action-label.codicon{font-size:20px;')
+# Fix padding reference to 48px
+data = data.replace('padding:0 0 0 48px', 'padding:0 0 0 40px')
+# Fix drag indicator width
+data = data.replace('width:48px;height:2px;', 'width:40px;height:2px;')
+# Fix badge positioning
+data = data.replace('top:24px;right:8px', 'top:20px;right:6px')
+# Fix profile overlay positioning
+data = data.replace('top:24px;right:6px', 'top:20px;right:4px')
+# Unclip title container so rounded tab corners are visible
+data = data.replace(
+    'editor-group-container>.title{position:relative;box-sizing:border-box;overflow:hidden}',
+    'editor-group-container>.title{position:relative;box-sizing:border-box;overflow:visible}'
+)
+# Inject rounded tab corners into existing tab rule
+data = data.replace('outline-offset:-2px}', 'outline-offset:-2px;border-radius:8px 8px 0 0}', 1)
+# Inject padding-top on tabs-container so rounded corners have space to show
+# Also hide the absolute top border container, and instead use an inset box-shadow for the active tab top border to respect the border-radius
+tab_css = '\\n.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container{padding-top:3px!important}'
+tab_css += '\\n.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab>.tab-border-top-container{display:none!important}'
+tab_css += '\\n.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.active{box-shadow:inset 0 1px 0 var(--tab-border-top-color)!important}'
+if '/*# sourceMappingURL=' in data:
+    data = data.replace('/*# sourceMappingURL=', tab_css + '\\n/*# sourceMappingURL=')
+else:
+    data += tab_css
+open(p, 'w', encoding='utf-8').write(data)
+" "$WORKBENCH_CSS"
 
 # Step 5.5: Patch package.json inside the app to fix Safe Storage name
 echo "Patching app/package.json..."
