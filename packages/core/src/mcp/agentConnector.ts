@@ -2,14 +2,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
-export const AGENT_IDS = ['claudecode', 'cursor', 'windsurf', 'cline'] as const;
+export const AGENT_IDS = ['claudecode', 'codex'] as const;
 export type AgentId = typeof AGENT_IDS[number];
 
 export const AGENT_LABELS: Record<AgentId, string> = {
     claudecode: 'Claude Code',
-    cursor: 'Cursor',
-    windsurf: 'Windsurf',
-    cline: 'Cline (VS Code)',
+    codex: 'Codex AI',
 };
 
 export class AgentConnector {
@@ -40,11 +38,7 @@ export class AgentConnector {
         switch (agentId) {
             case 'claudecode':
                 return workspacePath ? path.join(workspacePath, '.mcp.json') : path.join(home, '.mcp.json');
-            case 'cursor':
-                return path.join(home, '.cursor', 'mcp.json');
-            case 'windsurf':
-                return path.join(home, '.codeium', 'windsurf', 'mcp_config.json');
-            case 'cline':
+            case 'codex':
                 return path.join(home, '.vscode', 'settings.json');
             default:
                 return '';
@@ -57,16 +51,10 @@ export class AgentConnector {
             case 'claudecode':
                 return fs.existsSync(path.join(home, '.claude')) ||
                     AgentConnector._tryWhich('claude') !== '';
-            case 'cursor':
-                return fs.existsSync('/Applications/Cursor.app') ||
-                    fs.existsSync(path.join(home, '.cursor'));
-            case 'windsurf':
-                return fs.existsSync('/Applications/Windsurf.app') ||
-                    fs.existsSync(path.join(home, '.codeium', 'windsurf'));
-            case 'cline':
+            case 'codex':
                 return fs.existsSync(path.join(home, '.vscode', 'extensions')) &&
                     fs.readdirSync(path.join(home, '.vscode', 'extensions'))
-                        .some((d) => d.startsWith('saoudrizwan.claude-dev'));
+                        .some((d) => d.toLowerCase().includes('codex'));
             default:
                 return false;
         }
@@ -78,8 +66,8 @@ export class AgentConnector {
         try {
             const raw = fs.readFileSync(cfgPath, 'utf-8');
             const json = JSON.parse(raw);
-            if (agentId === 'cline') {
-                return !!(json?.['cline.mcpServers']?.lunaide);
+            if (agentId === 'codex') {
+                return !!(json?.['codex.mcpServers']?.lunaide);
             }
             return !!(json?.mcpServers?.lunaide);
         } catch {
@@ -108,15 +96,15 @@ export class AgentConnector {
 
         fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
 
-        if (agentId === 'cline') {
+        if (agentId === 'codex') {
             let existing: Record<string, unknown> = {};
             if (fs.existsSync(cfgPath)) {
                 try { existing = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')); } catch { /* start fresh */ }
             }
-            const servers = (existing['cline.mcpServers'] as Record<string, unknown>) ?? {};
+            const servers = (existing['codex.mcpServers'] as Record<string, unknown>) ?? {};
             servers['lunaide'] = lunaideEntry;
             if (robloxEntry) servers['Roblox_Studio'] = robloxEntry;
-            existing['cline.mcpServers'] = servers;
+            existing['codex.mcpServers'] = servers;
             fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2));
         } else {
             let existing: Record<string, unknown> = {};

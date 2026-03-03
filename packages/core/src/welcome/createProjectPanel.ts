@@ -94,18 +94,42 @@ export class CreateProjectPanel {
         await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(placeUri, svc.src));
       }
 
+      // Write init.meta.json for each service folder
+      for (const [serviceKey, svc] of Object.entries(profile.services)) {
+        const parts = serviceKey.split('.');
+        const className = parts[parts.length - 1];
+        const meta: Record<string, any> = { ignoreUnknownInstances: true };
+        await vscode.workspace.fs.writeFile(
+          vscode.Uri.joinPath(placeUri, `${svc.src}/init.meta.json`),
+          Buffer.from(JSON.stringify(meta, null, 2) + '\n'),
+        );
+      }
+
+      // Create StarterPlayer subfolders with className meta
+      if (profile.services['StarterPlayer']) {
+        const spSrc = profile.services['StarterPlayer'].src;
+        for (const child of ['StarterPlayerScripts', 'StarterCharacterScripts']) {
+          const childDir = vscode.Uri.joinPath(placeUri, `${spSrc}/${child}`);
+          await vscode.workspace.fs.createDirectory(childDir);
+          await vscode.workspace.fs.writeFile(
+            vscode.Uri.joinPath(childDir, 'init.meta.json'),
+            Buffer.from(JSON.stringify({ className: child }, null, 2) + '\n'),
+          );
+        }
+      }
+
       // Entry-point scripts
       if (profile.services['ServerScriptService']) {
         const serverSrc = profile.services['ServerScriptService'].src;
         await vscode.workspace.fs.writeFile(
-          vscode.Uri.joinPath(placeUri, `${serverSrc}/init.server.luau`),
+          vscode.Uri.joinPath(placeUri, `${serverSrc}/main.server.luau`),
           Buffer.from('-- Server entry point\n'),
         );
       }
-      if (profile.services['StarterPlayer.StarterPlayerScripts']) {
-        const clientSrc = profile.services['StarterPlayer.StarterPlayerScripts'].src;
+      if (profile.services['StarterPlayer']) {
+        const spSrc = profile.services['StarterPlayer'].src;
         await vscode.workspace.fs.writeFile(
-          vscode.Uri.joinPath(placeUri, `${clientSrc}/init.client.luau`),
+          vscode.Uri.joinPath(placeUri, `${spSrc}/StarterPlayerScripts/main.client.luau`),
           Buffer.from('-- Client entry point\n'),
         );
       }
@@ -119,12 +143,12 @@ export class CreateProjectPanel {
           if (!tree[parent]) tree[parent] = { $className: parent };
           tree[parent][child] = {
             $className: child,
-            [svc.name]: { $path: `${placeName}/${svc.src}` },
+            $path: `${placeName}/${svc.src}`,
           };
         } else {
           tree[serviceKey] = {
             $className: serviceKey,
-            [svc.name]: { $path: `${placeName}/${svc.src}` },
+            $path: `${placeName}/${svc.src}`,
           };
         }
       }

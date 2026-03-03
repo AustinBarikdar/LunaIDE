@@ -46,8 +46,7 @@ export const BUILT_IN_PROFILES: Record<string, Profile> = {
       ServerStorage: { name: 'ServerStorage', src: 'src/ServerStorage' },
       ReplicatedStorage: { name: 'ReplicatedStorage', src: 'src/ReplicatedStorage' },
       ReplicatedFirst: { name: 'ReplicatedFirst', src: 'src/ReplicatedFirst' },
-      'StarterPlayer.StarterPlayerScripts': { name: 'StarterPlayerScripts', src: 'src/StarterPlayer/StarterPlayerScripts' },
-      'StarterPlayer.StarterCharacterScripts': { name: 'StarterCharacterScripts', src: 'src/StarterPlayer/StarterCharacterScripts' },
+      StarterPlayer: { name: 'StarterPlayer', src: 'src/StarterPlayer' },
       StarterGui: { name: 'StarterGui', src: 'src/StarterGui' },
       StarterPack: { name: 'StarterPack', src: 'src/StarterPack' },
       Workspace: { name: 'Workspace', src: 'src/Workspace' },
@@ -701,13 +700,13 @@ function writeProjectConfig(workspaceFolder: string, placeName: string): void {
       if (!tree[parent]) tree[parent] = { $className: parent };
       tree[parent][child] = {
         $className: child,
-        [svc.name]: { $path: `${placeName}/${svc.src}` },
+        $path: `${placeName}/${svc.src}`,
       };
     } else {
       // Top-level service
       tree[serviceKey] = {
         $className: serviceKey,
-        [svc.name]: { $path: `${placeName}/${svc.src}` },
+        $path: `${placeName}/${svc.src}`,
       };
     }
   }

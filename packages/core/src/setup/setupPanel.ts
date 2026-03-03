@@ -47,6 +47,9 @@ export class SetupPanel implements vscode.Disposable {
                 case 'installPlugin':
                     await this._installPlugin();
                     break;
+                case 'importRbxm':
+                    await this._importRbxm();
+                    break;
                 case 'installAftman':
                     vscode.env.openExternal(vscode.Uri.parse('https://github.com/LPGhatguy/aftman#installation'));
                     break;
@@ -127,9 +130,7 @@ export class SetupPanel implements vscode.Disposable {
     private _agentLabel(agentId: string): string {
         switch (agentId) {
             case 'claudecode': return 'Claude Code';
-            case 'cursor': return 'Cursor';
-            case 'windsurf': return 'Windsurf';
-            case 'cline': return 'Cline';
+            case 'codex': return 'Codex AI';
             default: return agentId;
         }
     }
@@ -204,9 +205,7 @@ export class SetupPanel implements vscode.Disposable {
     private _gatherAgents(): AgentItem[] {
         const agents: Array<{ id: string; label: string }> = [
             { id: 'claudecode', label: 'Claude Code' },
-            { id: 'cursor',     label: 'Cursor' },
-            { id: 'windsurf',   label: 'Windsurf' },
-            { id: 'cline',      label: 'Cline (VS Code)' },
+            { id: 'codex', label: 'Codex AI' },
         ];
 
         const workspace = this._getWorkspacePath();
@@ -232,7 +231,7 @@ export class SetupPanel implements vscode.Disposable {
         // Also check ~/.local/bin directly
         if (!lunaideInPath) {
             lunaideInPath = fs.existsSync(path.join(home, '.local', 'bin', 'lunaide')) ||
-                            fs.existsSync('/usr/local/bin/lunaide');
+                fs.existsSync('/usr/local/bin/lunaide');
         }
         items.push({
             id: 'shellcmd',
@@ -299,6 +298,16 @@ export class SetupPanel implements vscode.Disposable {
             actionCommand: 'installPlugin',
         });
 
+        // 3.5 Specific plugin importer (rbxm)
+        items.push({
+            id: 'importPlugin',
+            label: 'Import Local Plugin (.rbxm)',
+            status: 'ok',
+            detail: 'Select any .rbxm/.rbxmx file to copy directly to your Studio Plugins folder.',
+            actionLabel: 'Import Plugin',
+            actionCommand: 'importRbxm',
+        });
+
         // 4. HTTP requests
         items.push({
             id: 'http',
@@ -354,24 +363,59 @@ export class SetupPanel implements vscode.Disposable {
 
     private async _installPlugin(): Promise<void> {
         const home = process.env.HOME ?? '';
-        const pluginsOut = path.join(home, 'Documents', 'Roblox', 'Plugins', 'LunaIDE.rbxmx');
+        const pluginsDir = path.join(home, 'Documents', 'Roblox', 'Plugins');
 
         try {
-            fs.mkdirSync(path.dirname(pluginsOut), { recursive: true });
+            fs.mkdirSync(pluginsDir, { recursive: true });
 
-            // Use the pre-built plugin bundled into the extension by prepare.sh
-            const bundled = path.join(this._context.extensionPath, 'LunaIDE.rbxmx');
-            if (fs.existsSync(bundled)) {
-                fs.copyFileSync(bundled, pluginsOut);
-                vscode.window.showInformationMessage('Studio plugin installed! Restart Roblox Studio to load it.');
+            // Use the pre-built plugins bundled into the extension by prepare.sh
+            const requiredPlugins = ['LunaIDE.rbxmx', 'Rojo.rbxmx'];
+            let installedCount = 0;
+
+            for (const pluginName of requiredPlugins) {
+                const bundledPlugin = path.join(this._context.extensionPath, pluginName);
+                if (fs.existsSync(bundledPlugin)) {
+                    fs.copyFileSync(bundledPlugin, path.join(pluginsDir, pluginName));
+                    installedCount++;
+                }
+            }
+
+            if (installedCount === requiredPlugins.length) {
+                vscode.window.showInformationMessage('Studio plugins installed! Restart Roblox Studio to load them.');
+            } else if (installedCount > 0) {
+                vscode.window.showWarningMessage(`Only installed ${installedCount}/${requiredPlugins.length} plugins. Run prepare.sh to rebuild LunaIDE.`);
             } else {
-                vscode.window.showErrorMessage('Bundled plugin not found. Please run prepare.sh to rebuild LunaIDE.');
+                vscode.window.showErrorMessage('Bundled plugins not found. Please run prepare.sh to rebuild LunaIDE.');
             }
         } catch (err: any) {
             vscode.window.showErrorMessage(`Plugin install failed: ${err.message}`);
         }
 
         this._refresh();
+    }
+
+    // ── Import Arbitrary Plugin ──────────────────────────────────────────────
+
+    private async _importRbxm(): Promise<void> {
+        const uris = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            openLabel: 'Import Plugin',
+            filters: { 'Roblox Plugins': ['rbxm', 'rbxmx'] }
+        });
+        if (!uris || uris.length === 0) return;
+
+        const src = uris[0].fsPath;
+        const filename = path.basename(src);
+        const home = process.env.HOME ?? '';
+        const pluginsOut = path.join(home, 'Documents', 'Roblox', 'Plugins', filename);
+
+        try {
+            fs.mkdirSync(path.dirname(pluginsOut), { recursive: true });
+            fs.copyFileSync(src, pluginsOut);
+            vscode.window.showInformationMessage(`Plugin ${filename} installed to Studio Plugins!`);
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`Failed to import plugin: ${err.message}`);
+        }
     }
 
     // ── HTML ─────────────────────────────────────────────────────────────────
@@ -381,8 +425,8 @@ export class SetupPanel implements vscode.Disposable {
             const icon = item.status === 'ok'
                 ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ec9b0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
                 : item.status === 'error'
-                ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f14c4c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
-                : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cca700" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+                    ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f14c4c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
+                    : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cca700" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
 
             const actionBtn = item.actionCommand ? `
                 <button class="action-btn" onclick="send('${item.actionCommand}')">${escapeHtml(item.actionLabel ?? '')}</button>
@@ -403,8 +447,8 @@ export class SetupPanel implements vscode.Disposable {
             const statusDot = agent.configured
                 ? `<span class="agent-badge badge-ok">Connected</span>`
                 : agent.installed
-                ? `<span class="agent-badge badge-idle">Not configured</span>`
-                : `<span class="agent-badge badge-dim">Not installed</span>`;
+                    ? `<span class="agent-badge badge-idle">Not configured</span>`
+                    : `<span class="agent-badge badge-dim">Not installed</span>`;
 
             const primaryBtn = `<button class="action-btn${agent.configured ? ' action-btn-secondary' : ''}"
                 onclick="send('configureAgent','${agent.id}')">${agent.configured ? 'Reconfigure' : 'Configure'}</button>`;

@@ -207,7 +207,7 @@ echo "Downloading luau-lsp..."
 LUAU_LSP_ASSET_URL=$(curl -s "https://api.github.com/repos/JohnnyMorganz/luau-lsp/releases/latest" | grep "browser_download_url.*macos\.zip" | cut -d '"' -f 4 | head -n 1)
 if [ -n "$LUAU_LSP_ASSET_URL" ]; then
     mkdir -p "$ROOT_DIR/packages/core/assets/bin"
-    TMP_ZIP=$(mktemp /tmp/luau-lsp-XXXXXX.zip)
+    TMP_ZIP="/tmp/luau-lsp-$$.zip"
     curl -L -o "$TMP_ZIP" "$LUAU_LSP_ASSET_URL"
     unzip -o -j "$TMP_ZIP" "luau-lsp" -d "$ROOT_DIR/packages/core/assets/bin"
     rm -f "$TMP_ZIP"
@@ -215,6 +215,31 @@ if [ -n "$LUAU_LSP_ASSET_URL" ]; then
     echo "luau-lsp downloaded."
 else
     echo "Warning: Could not find luau-lsp macOS release. LSP will require manual installation."
+fi
+
+# Download Roblox Studio MCP Server binary for macOS
+echo "Downloading Roblox Studio MCP Server..."
+MCP_BIN_DIR="$HOME/.lunaide/bin"
+MCP_APP_DIR="$MCP_BIN_DIR/RobloxStudioMCP.app"
+MCP_ASSET_URL=$(curl -s "https://api.github.com/repos/Roblox/studio-rust-mcp-server/releases/latest" | grep "browser_download_url.*macOS-rbx-studio-mcp\.zip" | cut -d '"' -f 4 | head -n 1)
+if [ -n "$MCP_ASSET_URL" ]; then
+    mkdir -p "$MCP_BIN_DIR"
+    MCP_TMP_ZIP="/tmp/rbx-studio-mcp-$$.zip"
+    curl -L -o "$MCP_TMP_ZIP" "$MCP_ASSET_URL"
+    rm -rf "$MCP_APP_DIR"
+    unzip -o -q "$MCP_TMP_ZIP" -d "$MCP_BIN_DIR"
+    rm -f "$MCP_TMP_ZIP"
+    MCP_EXEC="$MCP_APP_DIR/Contents/MacOS/rbx-studio-mcp"
+    if [ -f "$MCP_EXEC" ]; then
+        chmod +x "$MCP_EXEC"
+        xattr -cr "$MCP_APP_DIR"
+        codesign --force --deep --sign - "$MCP_APP_DIR"
+        echo "Roblox Studio MCP Server installed to: $MCP_APP_DIR"
+    else
+        echo "Warning: MCP binary not found at expected path after extraction."
+    fi
+else
+    echo "Warning: Could not find Roblox Studio MCP Server release. MCP integration will not work."
 fi
 
 echo "Injecting extensions..."
@@ -732,40 +757,37 @@ for suffix in "" " (GPU)" " (Plugin)" " (Renderer)"; do
     fi
 done
 
-# Step 9: Build and install the Studio plugin
-echo "Building Studio plugin..."
-PLUGIN_DIR="$ROOT_DIR/packages/studio-plugin"
+# Step 9: Build the LunaIDE Studio plugin and install the Rojo sync plugin
 ROBLOX_PLUGINS_DIR="$HOME/Documents/Roblox/Plugins"
+mkdir -p "$ROBLOX_PLUGINS_DIR"
+
+# 9a: Build the LunaIDE Studio plugin from source
+echo "Building LunaIDE Studio plugin..."
+ROJO_BIN=$(find ~/.aftman/tool-storage/rojo-rbx/rojo -name rojo -type f 2>/dev/null | head -1)
+if [ -z "$ROJO_BIN" ]; then
+    ROJO_BIN=$(command -v rojo 2>/dev/null)
+fi
+
 PLUGIN_OUT="$ROBLOX_PLUGINS_DIR/LunaIDE.rbxmx"
-
-# Find rojo binary (mirror rojoManager search order)
-ROJO_BIN=""
-AFTMAN_STORE="$HOME/.aftman/tool-storage/rojo-rbx/rojo"
-if [ -d "$AFTMAN_STORE" ]; then
-    LATEST_VER=$(ls "$AFTMAN_STORE" | sort -V | tail -n 1)
-    if [ -n "$LATEST_VER" ] && [ -x "$AFTMAN_STORE/$LATEST_VER/rojo" ]; then
-        ROJO_BIN="$AFTMAN_STORE/$LATEST_VER/rojo"
-    fi
-fi
-if [ -z "$ROJO_BIN" ] && [ -x "$HOME/.foreman/bin/rojo" ]; then
-    ROJO_BIN="$HOME/.foreman/bin/rojo"
-fi
-if [ -z "$ROJO_BIN" ] && [ -x "$HOME/.cargo/bin/rojo" ]; then
-    ROJO_BIN="$HOME/.cargo/bin/rojo"
-fi
-if [ -z "$ROJO_BIN" ]; then
-    ROJO_BIN=$(which rojo 2>/dev/null || true)
-fi
-
-if [ -z "$ROJO_BIN" ]; then
-    echo "Warning: rojo not found — skipping Studio plugin build."
-else
-    mkdir -p "$ROBLOX_PLUGINS_DIR"
-    "$ROJO_BIN" build "$PLUGIN_DIR/default.project.json" --output "$PLUGIN_OUT"
-    echo "Studio plugin installed to: $PLUGIN_OUT"
-    # Bundle the pre-built plugin into the app extension so _installPlugin() can copy it without rojo
+if [ -n "$ROJO_BIN" ]; then
+    "$ROJO_BIN" build "$ROOT_DIR/packages/studio-plugin/default.project.json" --output "$PLUGIN_OUT"
+    echo "LunaIDE Studio plugin installed to: $PLUGIN_OUT"
+    # Bundle the built plugin into the app extension so _installPlugin() can copy it without rojo
     cp "$PLUGIN_OUT" "$CORE_EXT_DIR/LunaIDE.rbxmx"
-    echo "Studio plugin bundled into app at: $CORE_EXT_DIR/LunaIDE.rbxmx"
+    echo "LunaIDE Studio plugin bundled into app at: $CORE_EXT_DIR/LunaIDE.rbxmx"
+else
+    echo "Warning: Rojo not found. Cannot build LunaIDE Studio plugin."
+fi
+
+# 9b: Download the Rojo sync plugin separately (needed for file syncing)
+echo "Downloading Rojo sync plugin (v7.4.4)..."
+ROJO_PLUGIN_OUT="$ROBLOX_PLUGINS_DIR/Rojo.rbxm"
+if curl -sL "https://github.com/rojo-rbx/rojo/releases/download/v7.4.4/Rojo.rbxm" -o "$ROJO_PLUGIN_OUT"; then
+    echo "Rojo sync plugin installed to: $ROJO_PLUGIN_OUT"
+    # Also copy it to the extension folder so it's backed up inside the app bundle
+    cp "$ROJO_PLUGIN_OUT" "$CORE_EXT_DIR/Rojo.rbxm"
+else
+    echo "Warning: Failed to download Rojo v7.4.4 plugin. File syncing may not work."
 fi
 
 # Step 10: Install 'lunaide' shell command
