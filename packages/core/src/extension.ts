@@ -446,7 +446,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     registerScriptTemplates(context);
 
     // Initialize Bridge Server (accepts MCP server connections)
-    bridgeServer = new BridgeServer(workspaceFolder, sessionManager, luauClient, rojoManager, studioManager, openCloudClient);
+    bridgeServer = new BridgeServer(workspaceFolder, sessionManager, luauClient, studioManager, openCloudClient);
     context.subscriptions.push(bridgeServer);
 
     // Register commands

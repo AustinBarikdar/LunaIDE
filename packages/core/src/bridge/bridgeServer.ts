@@ -5,7 +5,6 @@ import * as http from 'http';
 import { getBridgePortFile, INSTRUCTIONS_FILE, LUAU_EXTENSIONS, ROJO_PROJECT_FILE } from '@roblox-ide/shared';
 import { SessionManager } from '../sessions/sessionManager.js';
 import { LuauClient } from '../luau/luauClient.js';
-import { RojoManager } from '../rojo/rojoManager.js';
 import { StudioManager } from '../studio/studioManager.js';
 import { OpenCloudClient } from '../opencloud/openCloudClient.js';
 
@@ -30,7 +29,6 @@ export class BridgeServer implements vscode.Disposable {
         workspaceRoot: string,
         private sessionManager: SessionManager,
         private luauClient: LuauClient,
-        private rojoManager: RojoManager,
         private studioManager: StudioManager,
         private openCloudClient: OpenCloudClient,
     ) {
