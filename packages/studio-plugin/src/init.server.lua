@@ -14,6 +14,7 @@
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
+local InsertService = game:GetService("InsertService")
 
 -- Modules
 local HttpPoller = require(script.HttpPoller)
@@ -65,6 +66,168 @@ poller:registerHandler("get_output", function(payload)
 	-- Force a flush and return success
 	outputCapture:flush()
 	return true, { flushed = true }
+end)
+
+poller:registerHandler("run_code", function(payload)
+	local command = payload and payload.command
+	if not command then
+		return false, "Missing 'command' in payload"
+	end
+
+	-- Capture print output by temporarily overriding print
+	local outputLines = {}
+	local originalPrint = print
+	local originalWarn = warn
+	print = function(...)
+		local args = table.pack(...)
+		local parts = {}
+		for i = 1, args.n do
+			table.insert(parts, tostring(args[i]))
+		end
+		local line = table.concat(parts, "\t")
+		table.insert(outputLines, line)
+		originalPrint(...)
+	end
+	warn = function(...)
+		local args = table.pack(...)
+		local parts = {}
+		for i = 1, args.n do
+			table.insert(parts, tostring(args[i]))
+		end
+		local line = table.concat(parts, "\t")
+		table.insert(outputLines, "[warn] " .. line)
+		originalWarn(...)
+	end
+
+	local fn, loadErr = loadstring(command)
+	if not fn then
+		print = originalPrint
+		warn = originalWarn
+		return false, "Syntax error: " .. tostring(loadErr)
+	end
+
+	local ok, runErr = pcall(fn)
+	print = originalPrint
+	warn = originalWarn
+
+	if not ok then
+		return false, "Runtime error: " .. tostring(runErr)
+	end
+
+	return true, {
+		output = table.concat(outputLines, "\n"),
+	}
+end)
+
+poller:registerHandler("get_studio_mode", function(_payload)
+	local isRunning = RunService:IsRunning()
+	if not isRunning then
+		return true, { mode = "stop" }
+	end
+
+	-- Check if it's run mode (server only) vs play mode (client+server)
+	local isRunMode = false
+	pcall(function()
+		isRunMode = RunService:IsRunMode()
+	end)
+
+	if isRunMode then
+		return true, { mode = "run_server" }
+	else
+		return true, { mode = "start_play" }
+	end
+end)
+
+poller:registerHandler("insert_model", function(payload)
+	local query = payload and payload.query
+	if not query then
+		return false, "Missing 'query' in payload"
+	end
+
+	local ok, results = pcall(function()
+		return InsertService:GetFreeModels(query, 0)
+	end)
+	if not ok then
+		return false, "Failed to search models: " .. tostring(results)
+	end
+
+	-- GetFreeModels returns { [1] = { CurrentStartIndex, TotalCount, Results = { ... } } }
+	if not results or not results[1] or not results[1].Results or #results[1].Results == 0 then
+		return false, "No models found for query: " .. tostring(query)
+	end
+
+	local assetId = results[1].Results[1].AssetId
+
+	-- Use game:GetObjects instead of deprecated InsertService:LoadAsset
+	local loadOk, objects = pcall(function()
+		return game:GetObjects("rbxassetid://" .. tostring(assetId))
+	end)
+	if not loadOk or not objects or #objects == 0 then
+		return false, "Failed to load asset " .. tostring(assetId) .. ": " .. tostring(objects)
+	end
+
+	-- Title-case helper
+	local function toTitleCase(str: string): string
+		return string.gsub(str, "(%a)([%w]*)", function(first, rest)
+			return string.upper(first) .. string.lower(rest)
+		end)
+	end
+
+	-- Avoid duplicate names in Workspace
+	local function getUniqueName(name: string): string
+		if not game.Workspace:FindFirstChild(name) then
+			return name
+		end
+		local i = 2
+		while game.Workspace:FindFirstChild(name .. " " .. tostring(i)) do
+			i = i + 1
+		end
+		return name .. " " .. tostring(i)
+	end
+
+	-- Collapse multiple objects into a container (matching official plugin pattern)
+	local function collapseObjectsIntoContainer(objs: { Instance }): Instance
+		if #objs == 1 then
+			return objs[1]
+		end
+		-- Check if any object is a Model or BasePart
+		local hasModel = false
+		for _, obj in ipairs(objs) do
+			if obj:IsA("Model") or obj:IsA("BasePart") then
+				hasModel = true
+				break
+			end
+		end
+		local container: Instance
+		if hasModel then
+			container = Instance.new("Model")
+		else
+			container = Instance.new("Folder")
+		end
+		for _, obj in ipairs(objs) do
+			obj.Parent = container
+		end
+		return container
+	end
+
+	local result = collapseObjectsIntoContainer(objects)
+	local insertedName = toTitleCase(getUniqueName(result.Name or query))
+	result.Name = insertedName
+
+	-- Position near camera if it's a Model with a PrimaryPart
+	pcall(function()
+		if result:IsA("Model") then
+			local camera = game.Workspace.CurrentCamera
+			if camera and (result :: any).PrimaryPart then
+				local cf = camera.CFrame;
+				(result :: any):PivotTo(cf * CFrame.new(0, 0, -20))
+			end
+		end
+	end)
+
+	result.Parent = game.Workspace
+
+	return true, { name = insertedName, assetId = assetId }
 end)
 
 -- Resolve a dot-separated path (e.g. "game.Workspace.SpawnLocation") to an Instance

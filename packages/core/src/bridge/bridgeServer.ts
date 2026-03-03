@@ -137,6 +137,23 @@ export class BridgeServer implements vscode.Disposable {
             else if (method === 'POST' && pathname === '/studio/instance-properties') {
                 result = await this.handleGetStudioInstanceProperties(body);
             }
+            // Studio control tools (merged from Roblox Studio MCP)
+            else if (method === 'POST' && pathname === '/studio/run-code') {
+                result = await this.handleRunCode(body);
+            }
+            else if (method === 'GET' && pathname === '/studio/mode') {
+                const studioId = url.searchParams.get('studioId') || undefined;
+                result = await this.handleGetStudioMode(studioId);
+            }
+            else if (method === 'POST' && pathname === '/studio/start-stop') {
+                result = await this.handleStartStopPlay(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/insert-model') {
+                result = await this.handleInsertModel(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/run-in-play-mode') {
+                result = await this.handleRunScriptInPlayMode(body);
+            }
             // OpenCloud
             else if (method === 'POST' && pathname === '/opencloud/publish') {
                 result = await this.handlePublishPlace(body);
@@ -419,6 +436,191 @@ export class BridgeServer implements vscode.Disposable {
             });
             return { success: true, data: result };
         } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    // --- Studio control handlers (merged from Roblox Studio MCP) ---
+
+    private async handleRunCode(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'run_code', {
+                command: body.command,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleGetStudioMode(studioId?: string): Promise<BridgeResponse> {
+        const id = studioId || this.studioManager.getFirstStudioId();
+        if (!id) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+
+        try {
+            const result = await this.studioManager.sendCommand(id, 'get_studio_mode', {});
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleStartStopPlay(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+
+        const mode = body.mode as string;
+        try {
+            if (mode === 'stop') {
+                const result = await this.studioManager.sendCommand(studioId, 'stop_playtest', {});
+                return { success: true, data: result };
+            } else if (mode === 'start_play') {
+                const result = await this.studioManager.sendCommand(studioId, 'start_playtest', { mode: 'Play' });
+                return { success: true, data: result };
+            } else if (mode === 'run_server') {
+                const result = await this.studioManager.sendCommand(studioId, 'start_playtest', { mode: 'Run' });
+                return { success: true, data: result };
+            } else {
+                return { success: false, error: `Invalid mode: ${mode}. Must be start_play, run_server, or stop.` };
+            }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleInsertModel(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'insert_model', {
+                query: body.query,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleRunScriptInPlayMode(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+
+        const code = body.code as string;
+        const mode = body.mode as string || 'start_play';
+        const timeout = (body.timeout as number) || 100;
+
+        try {
+            // 1. Start play mode
+            const playtestMode = mode === 'run_server' ? 'Run' : 'Play';
+            await this.studioManager.sendCommand(studioId, 'start_playtest', { mode: playtestMode });
+
+            // 2. Wait for play to start (poll is_running)
+            const startDeadline = Date.now() + 10_000;
+            while (Date.now() < startDeadline) {
+                await new Promise((r) => setTimeout(r, 500));
+                try {
+                    const status = await this.studioManager.sendCommand(studioId, 'is_running', {}) as { isRunning: boolean };
+                    if (status?.isRunning) break;
+                } catch { /* retry */ }
+            }
+
+            // 3. Record timestamp before injection
+            const beforeTs = Date.now();
+
+            // 4. Inject the script — wrap to signal completion via print
+            const wrappedCode = `
+local __ok, __err = pcall(function()
+${code}
+end)
+if __ok then
+    print("__LUNAIDE_SCRIPT_DONE__")
+else
+    warn("__LUNAIDE_SCRIPT_ERROR__: " .. tostring(__err))
+    print("__LUNAIDE_SCRIPT_DONE__")
+end
+`;
+            await this.studioManager.sendCommand(studioId, 'inject_script', {
+                source: wrappedCode,
+                name: '_LunaIDE_RunInPlayMode',
+            });
+
+            // 5. Poll output for completion or timeout
+            const deadline = Date.now() + (timeout * 1000);
+            let scriptOutput: string[] = [];
+            let scriptError = '';
+            let isTimeout = false;
+
+            while (Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 500));
+                const output = this.studioManager.getOutput(studioId, beforeTs);
+                const allMessages = output.map((e) => e.message);
+
+                // Check for completion signal
+                const doneIdx = allMessages.findIndex((m) => m.includes('__LUNAIDE_SCRIPT_DONE__'));
+                if (doneIdx >= 0) {
+                    // Collect all output before done signal
+                    for (const entry of output) {
+                        if (entry.message.includes('__LUNAIDE_SCRIPT_DONE__')) break;
+                        if (entry.message.includes('__LUNAIDE_SCRIPT_ERROR__')) {
+                            scriptError = entry.message.replace('__LUNAIDE_SCRIPT_ERROR__: ', '');
+                        } else {
+                            scriptOutput.push(entry.message);
+                        }
+                    }
+                    break;
+                }
+            }
+
+            if (Date.now() >= deadline) {
+                isTimeout = true;
+                // Collect whatever output we have
+                const output = this.studioManager.getOutput(studioId, beforeTs);
+                scriptOutput = output
+                    .filter((e) => !e.message.includes('__LUNAIDE_SCRIPT_'))
+                    .map((e) => e.message);
+            }
+
+            // 6. Stop play
+            try {
+                await this.studioManager.sendCommand(studioId, 'stop_playtest', {});
+            } catch { /* best effort */ }
+
+            return {
+                success: true,
+                data: {
+                    success: !scriptError && !isTimeout,
+                    value: scriptOutput.join('\n'),
+                    error: scriptError || (isTimeout ? 'Script timed out' : ''),
+                    logs: scriptOutput.map((m) => ({ level: 'output', message: m, ts: Date.now() })),
+                    errors: scriptError ? [{ level: 'error', message: scriptError, ts: Date.now() }] : [],
+                    duration: Date.now() - beforeTs,
+                    isTimeout,
+                },
+            };
+        } catch (err) {
+            // Try to stop play on error
+            try {
+                await this.studioManager.sendCommand(studioId, 'stop_playtest', {});
+            } catch { /* best effort */ }
             const message = err instanceof Error ? err.message : String(err);
             return { success: false, error: message };
         }

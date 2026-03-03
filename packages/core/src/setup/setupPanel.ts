@@ -369,7 +369,7 @@ export class SetupPanel implements vscode.Disposable {
             fs.mkdirSync(pluginsDir, { recursive: true });
 
             // Use the pre-built plugins bundled into the extension by prepare.sh
-            const requiredPlugins = ['LunaIDE.rbxmx', 'Rojo.rbxmx'];
+            const requiredPlugins = ['LunaIDE.rbxmx', 'Rojo.rbxm'];
             let installedCount = 0;
 
             for (const pluginName of requiredPlugins) {

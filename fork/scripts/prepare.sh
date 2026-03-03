@@ -259,31 +259,6 @@ else
     echo "Warning: Could not find luau-lsp macOS release. LSP will require manual installation."
 fi
 
-# Download Roblox Studio MCP Server binary for macOS
-echo "Downloading Roblox Studio MCP Server..."
-MCP_BIN_DIR="$HOME/.lunaide/bin"
-MCP_APP_DIR="$MCP_BIN_DIR/RobloxStudioMCP.app"
-MCP_ASSET_URL=$(curl -s "https://api.github.com/repos/Roblox/studio-rust-mcp-server/releases/latest" | grep "browser_download_url.*macOS-rbx-studio-mcp\.zip" | cut -d '"' -f 4 | head -n 1)
-if [ -n "$MCP_ASSET_URL" ]; then
-    mkdir -p "$MCP_BIN_DIR"
-    MCP_TMP_ZIP="/tmp/rbx-studio-mcp-$$.zip"
-    curl -L -o "$MCP_TMP_ZIP" "$MCP_ASSET_URL"
-    rm -rf "$MCP_APP_DIR"
-    unzip -o -q "$MCP_TMP_ZIP" -d "$MCP_BIN_DIR"
-    rm -f "$MCP_TMP_ZIP"
-    MCP_EXEC="$MCP_APP_DIR/Contents/MacOS/rbx-studio-mcp"
-    if [ -f "$MCP_EXEC" ]; then
-        chmod +x "$MCP_EXEC"
-        xattr -cr "$MCP_APP_DIR"
-        codesign --force --deep --sign - "$MCP_APP_DIR"
-        echo "Roblox Studio MCP Server installed to: $MCP_APP_DIR"
-    else
-        echo "Warning: MCP binary not found at expected path after extraction."
-    fi
-else
-    echo "Warning: Could not find Roblox Studio MCP Server release. MCP integration will not work."
-fi
-
 echo "Injecting extensions..."
 
 # Install JohnnyMorganz luau-lsp into the user extensions dir (~/.lunaide/extensions/)

@@ -17,7 +17,11 @@ export type StudioCommandType =
   | 'get_instances'
   | 'get_output'
   | 'get_children'
-  | 'get_instance_properties';
+  | 'get_instance_properties'
+  | 'is_running'
+  | 'run_code'
+  | 'get_studio_mode'
+  | 'insert_model';
 
 export interface StudioOutputEntry {
   timestamp: number;

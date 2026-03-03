@@ -16,11 +16,6 @@ export class AgentConnector {
         return path.join(extDir, 'roblox-ide.roblox-ide-mcp-0.1.0', 'dist', 'index.js');
     }
 
-    static getRobloxMcpPath(): string {
-        const home = process.env.HOME ?? '';
-        return path.join(home, '.lunaide', 'bin', 'RobloxStudioMCP.app', 'Contents', 'MacOS', 'rbx-studio-mcp');
-    }
-
     static findNodeBinary(): string {
         const envPath = process.env.PATH ?? '';
         for (const dir of envPath.split(':')) {
@@ -89,11 +84,6 @@ export class AgentConnector {
             args: [mcpServer],
         };
 
-        const robloxMcpPath = AgentConnector.getRobloxMcpPath();
-        const robloxEntry = fs.existsSync(robloxMcpPath)
-            ? { command: robloxMcpPath, args: ['--stdio'] }
-            : null;
-
         fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
 
         if (agentId === 'codex') {
@@ -103,7 +93,6 @@ export class AgentConnector {
             }
             const servers = (existing['codex.mcpServers'] as Record<string, unknown>) ?? {};
             servers['lunaide'] = lunaideEntry;
-            if (robloxEntry) servers['Roblox_Studio'] = robloxEntry;
             existing['codex.mcpServers'] = servers;
             fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2));
         } else {
@@ -113,7 +102,6 @@ export class AgentConnector {
             }
             const servers = (existing['mcpServers'] as Record<string, unknown>) ?? {};
             servers['lunaide'] = lunaideEntry;
-            if (robloxEntry) servers['Roblox_Studio'] = robloxEntry;
             existing['mcpServers'] = servers;
             fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2));
         }

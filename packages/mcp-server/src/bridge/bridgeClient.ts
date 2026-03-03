@@ -134,6 +134,34 @@ export class BridgeClient {
         return data.data;
     }
 
+    // --- Studio control operations (merged from Roblox Studio MCP) ---
+
+    async runCode(command: string, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/run-code', { command, studioId });
+        return data.data;
+    }
+
+    async getStudioMode(studioId?: string): Promise<unknown> {
+        const params = studioId ? `?studioId=${encodeURIComponent(studioId)}` : '';
+        const data = await this.jsonRequest('GET', `/studio/mode${params}`);
+        return data.data;
+    }
+
+    async startStopPlay(mode: string, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/start-stop', { mode, studioId });
+        return data.data;
+    }
+
+    async insertModel(query: string, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/insert-model', { query, studioId });
+        return data.data;
+    }
+
+    async runScriptInPlayMode(code: string, mode: string, timeout?: number, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/run-in-play-mode', { code, mode, timeout, studioId });
+        return data.data;
+    }
+
     // --- OpenCloud operations ---
 
     async publishPlace(universeId: number, placeId: number, filePath: string, versionType?: string): Promise<unknown> {

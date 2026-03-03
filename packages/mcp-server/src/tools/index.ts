@@ -17,6 +17,12 @@ import { releaseLockTool } from './releaseLock.js';
 import { publishPlaceTool } from './publishPlace.js';
 import { manageDatastoreTool } from './manageDatastore.js';
 import { sendMessageTool } from './sendMessage.js';
+import { runCodeTool } from './runCode.js';
+import { getStudioModeTool } from './getStudioMode.js';
+import { startStopPlayTool } from './startStopPlay.js';
+import { insertModelTool } from './insertModel.js';
+import { runScriptInPlayModeTool } from './runScriptInPlayMode.js';
+import { getConsoleOutputTool } from './getConsoleOutput.js';
 
 export interface ToolDefinition {
     name: string;
@@ -54,6 +60,13 @@ export function createTools(bridge: BridgeClient, lockManager: LockManager): Too
         // File locking
         acquireLockTool(lockManager),
         releaseLockTool(lockManager),
+        // Studio control (merged from Roblox Studio MCP)
+        runCodeTool(bridge),
+        getStudioModeTool(bridge),
+        startStopPlayTool(bridge),
+        insertModelTool(bridge),
+        runScriptInPlayModeTool(bridge),
+        getConsoleOutputTool(bridge),
         // OpenCloud
         publishPlaceTool(bridge),
         manageDatastoreTool(bridge),
