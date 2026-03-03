@@ -74,27 +74,6 @@ export class LockManager {
     }
 
     /**
-     * Validate that a write is allowed. Throws if locked by another agent.
-     */
-    validateWrite(filePath: string, agentId?: string): void {
-        const lock = this.checkLock(filePath);
-        if (lock && agentId && lock.agentId !== agentId) {
-            throw new Error(
-                `Write denied: "${filePath}" is locked by agent "${lock.agentId}". ` +
-                `Acquire the lock first or wait for it to expire.`
-            );
-        }
-    }
-
-    /**
-     * Get all active locks.
-     */
-    listLocks(): FileLock[] {
-        this.pruneExpired();
-        return Array.from(this.locks.values());
-    }
-
-    /**
      * Remove expired locks.
      */
     private pruneExpired(): void {

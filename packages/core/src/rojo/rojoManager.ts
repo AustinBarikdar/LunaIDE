@@ -65,7 +65,7 @@ export class RojoManager implements vscode.Disposable {
     // Kill any stale process holding our port (e.g. from a previous extension host run)
     await this.killProcessOnPort(this.getPort());
 
-    const effectiveCwd = this.getEffectiveCwd() ?? workspaceFolder;
+    const effectiveCwd = this.getWorkspaceFolder() ?? workspaceFolder;
 
     // Start rojo serve
     await this.startServe(rojoBinary, effectiveCwd);
@@ -94,17 +94,6 @@ export class RojoManager implements vscode.Disposable {
   /** Suppress the file-watcher restart (set before deliberately rewriting project config). */
   setSuppressWatcherRestart(suppress: boolean): void {
     this.suppressWatcherRestart = suppress;
-  }
-
-  getState(): RojoConnectionState {
-    return this.state;
-  }
-
-  getSourcemapPath(): string | undefined {
-    const cwd = this.getEffectiveCwd();
-    if (!cwd) return undefined;
-    const smPath = path.join(cwd, 'sourcemap.json');
-    return fs.existsSync(smPath) ? smPath : undefined;
   }
 
   private async startServe(rojoBinary: string, cwd: string): Promise<void> {
@@ -290,13 +279,9 @@ export class RojoManager implements vscode.Disposable {
   }
 
   private getProjectFilePath(): string | undefined {
-    const folder = this.getEffectiveCwd();
+    const folder = this.getWorkspaceFolder();
     if (!folder) return undefined;
     return path.join(folder, this.getProjectFileName());
-  }
-
-  private getEffectiveCwd(): string | undefined {
-    return this.getWorkspaceFolder();
   }
 
   private getWorkspaceFolder(): string | undefined {

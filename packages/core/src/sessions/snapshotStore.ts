@@ -3,15 +3,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SessionSnapshot, FileChange, SnapshotMeta } from '@roblox-ide/shared';
 import { ROBLOXIDE_DIR, SESSIONS_DIR, MAX_SNAPSHOTS } from '@roblox-ide/shared';
-import { computeDiff, TextDiff } from './diffEngine.js';
-
 interface StoredSnapshot {
     id: string;
     timestamp: number;
     description: string;
     changes: Array<{
         filePath: string;
-        diff: TextDiff;
         beforeContent: string;
     }>;
 }
@@ -40,7 +37,6 @@ export class SnapshotStore implements vscode.Disposable {
 
         const storedChanges = changes.map((c) => ({
             filePath: c.filePath,
-            diff: computeDiff(c.before, c.after),
             beforeContent: c.before,
         }));
 
@@ -63,7 +59,7 @@ export class SnapshotStore implements vscode.Disposable {
     /**
      * Get a snapshot by ID.
      */
-    getSnapshot(id: string): StoredSnapshot | null {
+    private getSnapshot(id: string): StoredSnapshot | null {
         const filePath = path.join(this.sessionsDir, `${id}.json`);
         if (!fs.existsSync(filePath)) return null;
 

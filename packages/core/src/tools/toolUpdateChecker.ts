@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as https from 'https';
 import { execFile } from 'child_process';
 
-export interface ManagedTool {
+interface ManagedTool {
   id: string;
   repo: string;
   displayName: string;

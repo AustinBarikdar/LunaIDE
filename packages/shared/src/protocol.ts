@@ -29,12 +29,6 @@ export interface StudioOutputEntry {
   message: string;
 }
 
-/** Instance tree data posted from Studio plugin to IDE */
-export interface StudioInstanceTree {
-  studioId: string;
-  root: StudioInstanceNode;
-}
-
 export interface StudioInstanceNode {
   name: string;
   className: string;
@@ -42,8 +36,3 @@ export interface StudioInstanceNode {
   properties?: Record<string, unknown>;
 }
 
-export interface BridgeResponse {
-  success: boolean;
-  data?: unknown;
-  error?: string;
-}

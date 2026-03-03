@@ -18,16 +18,6 @@ export interface RojoTreeNode {
   [key: string]: unknown;
 }
 
-/** Studio connection info */
-export interface StudioInstance {
-  id: string;
-  pid: number;
-  port: number;
-  placeName?: string;
-  connected: boolean;
-  lastSeen: number;
-}
-
 /** Session snapshot for undo/redo */
 export interface SessionSnapshot {
   id: string;

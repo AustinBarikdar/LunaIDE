@@ -724,21 +724,6 @@ function getWorkspaceRoot(): string | undefined {
   return folders[0].uri.fsPath;
 }
 
-/**
- * Exported for MCP server bridge access.
- */
-export function getRojoManager(): RojoManager {
-  return rojoManager;
-}
-
-export function getLuauClient(): LuauClient {
-  return luauClient;
-}
-
-export function getSessionManager(): SessionManager {
-  return sessionManager;
-}
-
 function registerWelcomeCommands(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('lunaide.showWelcome', () => {

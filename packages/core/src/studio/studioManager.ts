@@ -168,17 +168,6 @@ export class StudioManager implements vscode.Disposable {
         studio.instanceTree = root;
     }
 
-    getInstanceTree(studioId?: string): StudioInstanceNode | null {
-        if (studioId) {
-            return this.studios.get(studioId)?.instanceTree || null;
-        }
-        // Return first connected studio's tree
-        for (const studio of this.studios.values()) {
-            if (studio.instanceTree) return studio.instanceTree;
-        }
-        return null;
-    }
-
     // --- Helpers ---
 
     getFirstStudioId(): string | null {

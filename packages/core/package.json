@@ -236,13 +236,11 @@
     }
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1",
-    "diff-match-patch": "^1.0.5"
+    "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
     "@types/vscode": "^1.90.0",
     "@types/node": "^20.0.0",
-    "@types/diff-match-patch": "^1.0.36",
     "esbuild": "^0.21.0",
     "typescript": "^5.5.0",
     "@roblox-ide/shared": "workspace:*"

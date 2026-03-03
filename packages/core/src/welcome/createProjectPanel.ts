@@ -95,9 +95,7 @@ export class CreateProjectPanel {
       }
 
       // Write init.meta.json for each service folder
-      for (const [serviceKey, svc] of Object.entries(profile.services)) {
-        const parts = serviceKey.split('.');
-        const className = parts[parts.length - 1];
+      for (const [, svc] of Object.entries(profile.services)) {
         const meta: Record<string, any> = { ignoreUnknownInstances: true };
         await vscode.workspace.fs.writeFile(
           vscode.Uri.joinPath(placeUri, `${svc.src}/init.meta.json`),

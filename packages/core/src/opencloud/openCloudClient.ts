@@ -38,10 +38,6 @@ export class OpenCloudClient implements vscode.Disposable {
         this.log('API key cleared.');
     }
 
-    hasApiKey(): boolean {
-        return this.apiKey !== null;
-    }
-
     // --- Place API ---
 
     async publishPlace(universeId: number, placeId: number, fileContent: Buffer, versionType: 'Saved' | 'Published' = 'Published'): Promise<{ versionNumber: number }> {
