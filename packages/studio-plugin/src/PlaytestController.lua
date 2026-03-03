@@ -64,12 +64,4 @@ function PlaytestController:stopPlaytest(): (boolean, any?)
 	return true, { status = "stopped" }
 end
 
-function PlaytestController:getStatus(): (boolean, any?)
-	return true, {
-		isRunning = RunService:IsRunning(),
-		isServer = RunService:IsServer(),
-		isClient = RunService:IsClient(),
-	}
-end
-
 return PlaytestController

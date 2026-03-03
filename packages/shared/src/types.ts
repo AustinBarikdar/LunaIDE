@@ -42,15 +42,6 @@ export interface FileChange {
   after: string;
 }
 
-/** File lock for multi-agent support */
-export interface FileLock {
-  filePath: string;
-  agentId: string;
-  token: string;
-  acquiredAt: number;
-  expiresAt: number;
-}
-
 /** Luau diagnostic from LSP */
 export interface LuauDiagnostic {
   filePath: string;
@@ -72,30 +63,6 @@ export interface RobloxInstance {
   properties?: Record<string, unknown>;
   attributes?: Record<string, unknown>;
   tags?: string[];
-}
-
-/** Playtest session info */
-export interface PlaytestSession {
-  id: string;
-  studioId: string;
-  startedAt: number;
-  testScript?: string;
-  status: 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
-}
-
-/** Output log entry from Studio */
-export interface OutputEntry {
-  timestamp: number;
-  messageType: 'output' | 'info' | 'warning' | 'error';
-  message: string;
-  source?: string;
-}
-
-/** Standardized MCP tool result */
-export interface McpToolResult {
-  success: boolean;
-  data?: unknown;
-  error?: string;
 }
 
 /** Snapshot metadata (stored in session index) */

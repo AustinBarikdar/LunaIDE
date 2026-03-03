@@ -1,4 +1,3 @@
-import { BridgeClient } from '../bridge/bridgeClient.js';
 import { LockManager } from '../locking/lockManager.js';
 
 export function acquireLockTool(lockManager: LockManager) {

@@ -115,8 +115,7 @@ export class BridgeServer implements vscode.Disposable {
             }
             // Instances
             else if (method === 'GET' && pathname === '/instances') {
-                const parentPath = url.searchParams.get('parentPath') || undefined;
-                result = await this.handleListInstances(parentPath);
+                result = await this.handleListInstances();
             }
             else if (method === 'GET' && pathname === '/instances/properties') {
                 const instancePath = url.searchParams.get('path') || '';
@@ -291,7 +290,7 @@ export class BridgeServer implements vscode.Disposable {
 
     // --- Instance handlers ---
 
-    private async handleListInstances(_parentPath?: string): Promise<BridgeResponse> {
+    private async handleListInstances(): Promise<BridgeResponse> {
         const projectFile = path.join(this.workspaceRoot, ROJO_PROJECT_FILE);
         if (!fs.existsSync(projectFile)) {
             return { success: false, error: 'No default.project.json found' };
