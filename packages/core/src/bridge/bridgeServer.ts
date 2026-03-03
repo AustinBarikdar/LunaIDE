@@ -27,6 +27,46 @@ export class BridgeServer implements vscode.Disposable {
     private workspaceRoot: string;
     private statusBarItem: vscode.StatusBarItem | null = null;
 
+    private routeMap: Record<string, (url: URL, body: Record<string, unknown>) => Promise<BridgeResponse> | BridgeResponse> = {
+        'GET /health': () => ({ success: true, data: { status: 'ok', port: this.port } }),
+        'POST /scripts/read': (_, body) => this.handleReadScript(body),
+        'POST /scripts/write': (_, body) => this.handleWriteScript(body),
+        'POST /scripts/search': (_, body) => this.handleSearchFiles(body),
+        'GET /project/structure': () => this.handleGetProjectStructure(),
+        'GET /project/instructions': () => this.handleGetInstructions(),
+        'GET /diagnostics': (url) => this.handleGetDiagnostics(url.searchParams.get('filePath') || undefined),
+        'GET /sessions/snapshots': () => this.handleListSnapshots(),
+        'POST /sessions/rollback': (_, body) => this.handleRollback(body),
+        'GET /instances': () => this.handleListInstances(),
+        'GET /instances/properties': (url) => this.handleGetProperties(url.searchParams.get('path') || ''),
+        'POST /instances/properties': (_, body) => this.handleSetProperties(body),
+        'POST /studio/inject': (_, body) => this.handleInjectScript(body),
+        'GET /studio/output': (url) => {
+            const since = url.searchParams.get('since');
+            return this.handleGetOutput(since ? parseInt(since, 10) : undefined, url.searchParams.get('studioId') || undefined);
+        },
+        'POST /studio/children': (_, body) => this.handleGetStudioChildren(body),
+        'POST /studio/instance-properties': (_, body) => this.handleGetStudioInstanceProperties(body),
+        'POST /studio/run-code': (_, body) => this.handleRunCode(body),
+        'GET /studio/mode': (url) => this.handleGetStudioMode(url.searchParams.get('studioId') || undefined),
+        'POST /studio/start-stop': (_, body) => this.handleStartStopPlay(body),
+        'POST /studio/insert-model': (_, body) => this.handleInsertModel(body),
+        'POST /studio/run-in-play-mode': (_, body) => this.handleRunScriptInPlayMode(body),
+        'GET /studio/connected': () => this.handleGetConnectedStudios(),
+        'POST /studio/selection/get': (_, body) => this.handleGetSelection(body),
+        'POST /studio/selection/set': (_, body) => this.handleSetSelection(body),
+        'POST /studio/create-instance': (_, body) => this.handleCreateInstance(body),
+        'POST /studio/delete-instance': (_, body) => this.handleDeleteInstance(body),
+        'POST /studio/set-instance-properties': (_, body) => this.handleSetInstanceProperties(body),
+        'POST /studio/move-rename-instance': (_, body) => this.handleMoveRenameInstance(body),
+        'POST /studio/manage-tags': (_, body) => this.handleManageTags(body),
+        'POST /studio/simulate-input': (_, body) => this.handleSimulateInput(body),
+        'POST /studio/capture-screenshot': (_, body) => this.handleCaptureScreenshot(body),
+        'POST /opencloud/publish': (_, body) => this.handlePublishPlace(body),
+        'POST /opencloud/datastore': (_, body) => this.handleDatastore(body),
+        'POST /opencloud/message': (_, body) => this.handleSendMessage(body),
+    };
+
     constructor(
         workspaceRoot: string,
         private sessionManager: SessionManager,
@@ -80,125 +120,14 @@ export class BridgeServer implements vscode.Disposable {
 
             let result: BridgeResponse;
 
-            // --- Routes ---
-            if (method === 'GET' && pathname === '/health') {
-                result = { success: true, data: { status: 'ok', port: this.port } };
-            }
-            // Scripts
-            else if (method === 'POST' && pathname === '/scripts/read') {
-                result = await this.handleReadScript(body);
-            }
-            else if (method === 'POST' && pathname === '/scripts/write') {
-                result = await this.handleWriteScript(body);
-            }
-            else if (method === 'POST' && pathname === '/scripts/search') {
-                result = await this.handleSearchFiles(body);
-            }
-            // Project
-            else if (method === 'GET' && pathname === '/project/structure') {
-                result = await this.handleGetProjectStructure();
-            }
-            else if (method === 'GET' && pathname === '/project/instructions') {
-                result = await this.handleGetInstructions();
-            }
-            // Diagnostics
-            else if (method === 'GET' && pathname === '/diagnostics') {
-                const filePath = url.searchParams.get('filePath') || undefined;
-                result = await this.handleGetDiagnostics(filePath);
-            }
-            // Sessions
-            else if (method === 'GET' && pathname === '/sessions/snapshots') {
-                result = await this.handleListSnapshots();
-            }
-            else if (method === 'POST' && pathname === '/sessions/rollback') {
-                result = await this.handleRollback(body);
-            }
-            // Instances
-            else if (method === 'GET' && pathname === '/instances') {
-                result = await this.handleListInstances();
-            }
-            else if (method === 'GET' && pathname === '/instances/properties') {
-                const instancePath = url.searchParams.get('path') || '';
-                result = await this.handleGetProperties(instancePath);
-            }
-            else if (method === 'POST' && pathname === '/instances/properties') {
-                result = await this.handleSetProperties(body);
-            }
-            // Studio (MCP -> bridge -> StudioManager -> Studio plugin)
-            else if (method === 'POST' && pathname === '/studio/inject') {
-                result = await this.handleInjectScript(body);
-            }
-            else if (method === 'GET' && pathname === '/studio/output') {
-                const since = url.searchParams.get('since');
-                const studioId = url.searchParams.get('studioId') || undefined;
-                result = await this.handleGetOutput(since ? parseInt(since, 10) : undefined, studioId);
-            }
-            else if (method === 'POST' && pathname === '/studio/children') {
-                result = await this.handleGetStudioChildren(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/instance-properties') {
-                result = await this.handleGetStudioInstanceProperties(body);
-            }
-            // Studio control tools (merged from Roblox Studio MCP)
-            else if (method === 'POST' && pathname === '/studio/run-code') {
-                result = await this.handleRunCode(body);
-            }
-            else if (method === 'GET' && pathname === '/studio/mode') {
-                const studioId = url.searchParams.get('studioId') || undefined;
-                result = await this.handleGetStudioMode(studioId);
-            }
-            else if (method === 'POST' && pathname === '/studio/start-stop') {
-                result = await this.handleStartStopPlay(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/insert-model') {
-                result = await this.handleInsertModel(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/run-in-play-mode') {
-                result = await this.handleRunScriptInPlayMode(body);
-            }
-            // New AI workflow routes
-            else if (method === 'GET' && pathname === '/studio/connected') {
-                result = await this.handleGetConnectedStudios();
-            }
-            else if (method === 'POST' && pathname === '/studio/selection/get') {
-                result = await this.handleGetSelection(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/selection/set') {
-                result = await this.handleSetSelection(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/create-instance') {
-                result = await this.handleCreateInstance(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/delete-instance') {
-                result = await this.handleDeleteInstance(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/set-instance-properties') {
-                result = await this.handleSetInstanceProperties(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/move-rename-instance') {
-                result = await this.handleMoveRenameInstance(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/manage-tags') {
-                result = await this.handleManageTags(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/simulate-input') {
-                result = await this.handleSimulateInput(body);
-            }
-            else if (method === 'POST' && pathname === '/studio/capture-screenshot') {
-                result = await this.handleCaptureScreenshot(body);
-            }
-            // OpenCloud
-            else if (method === 'POST' && pathname === '/opencloud/publish') {
-                result = await this.handlePublishPlace(body);
-            }
-            else if (method === 'POST' && pathname === '/opencloud/datastore') {
-                result = await this.handleDatastore(body);
-            }
-            else if (method === 'POST' && pathname === '/opencloud/message') {
-                result = await this.handleSendMessage(body);
-            }
-            else {
-                result = { success: false, error: `Unknown route: ${method} ${pathname}` };
+            // --- Route handling via map ---
+            const routeKey = `${method} ${pathname}`;
+            const handler = this.routeMap[routeKey];
+
+            if (handler) {
+                result = await handler(url, body);
+            } else {
+                result = { success: false, error: `Unknown route: ${routeKey}` };
                 res.statusCode = 404;
             }
 
@@ -494,14 +423,28 @@ export class BridgeServer implements vscode.Disposable {
     }
 
     private async handleGetStudioMode(studioId?: string): Promise<BridgeResponse> {
-        const id = studioId || this.studioManager.getFirstStudioId();
-        if (!id) {
+        // When a playtest is running, the plugin runs in both the Edit DataModel and the
+        // Server DataModel (each with a different Studio ID). RunService:IsRunning() is
+        // always false in Edit, so querying only the first studio always returns "stop".
+        // Fix: query all connected studios and return the first non-stop mode.
+        const allStudios = this.studioManager.getConnectedStudios();
+        if (allStudios.length === 0) {
             return { success: false, error: 'No Studio instance connected' };
         }
 
+        const idsToQuery = studioId ? [studioId] : allStudios.map((s) => s.studioId);
+
         try {
-            const result = await this.studioManager.sendCommand(id, 'get_studio_mode', {});
-            return { success: true, data: result };
+            const modes = await Promise.all(
+                idsToQuery.map((sid) =>
+                    this.studioManager
+                        .sendCommand(sid, 'get_studio_mode', {})
+                        .then((r) => (r as { mode?: string })?.mode || 'stop')
+                        .catch(() => 'stop'),
+                ),
+            );
+            const activeMode = modes.find((m) => m !== 'stop');
+            return { success: true, data: { mode: activeMode || 'stop' } };
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             return { success: false, error: message };
@@ -811,19 +754,19 @@ end
             }
             const filePath = path.join(captureDir, `capture-${timestamp}.png`);
 
-            // 4. Capture just the Studio window by its window ID.
-            //    -l <id>: capture only that window (not the whole display)
-            //    -o: omit window shadow so we get clean window-only pixels
+            // 4. Capture the Studio window region by screen coordinates.
+            //    -R x,y,w,h: capture only this screen rectangle (more reliable than -l <windowId>)
             //    -x: no shutter sound
             //    Requires Screen Recording permission for LunaIDE in System Settings.
+            const { x: winX, y: winY, width: winW, height: winH } = studioWindow.bounds;
             try {
-                await this.execPromise(`screencapture -l ${studioWindow.windowId} -o -x "${filePath}"`);
+                await this.execPromise(`screencapture -R ${winX},${winY},${winW},${winH} -x "${filePath}"`);
             } catch (captureErr) {
                 const msg = captureErr instanceof Error ? captureErr.message : String(captureErr);
                 return {
                     success: false,
                     error:
-                        `Window capture failed (${msg}). ` +
+                        `Region capture failed (${msg}). ` +
                         'Grant Screen Recording permission to LunaIDE in ' +
                         'System Settings > Privacy & Security > Screen Recording, then restart LunaIDE.',
                 };
