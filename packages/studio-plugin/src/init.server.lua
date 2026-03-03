@@ -380,6 +380,266 @@ poller:registerHandler("get_instance_properties", function(payload)
 	}
 end)
 
+local Selection = game:GetService("Selection")
+local CollectionService = game:GetService("CollectionService")
+local ChangeHistoryService = game:GetService("ChangeHistoryService")
+
+poller:registerHandler("get_selection", function(_payload)
+	local selected = Selection:Get()
+	local results = {}
+	for _, inst in ipairs(selected) do
+		table.insert(results, {
+			name = inst.Name,
+			className = inst.ClassName,
+			path = inst:GetFullName(),
+		})
+	end
+	return true, { selection = results }
+end)
+
+poller:registerHandler("set_selection", function(payload)
+	local paths = payload and payload.paths
+	if not paths then
+		return false, "Missing 'paths' in payload"
+	end
+
+	local instances = {}
+	for _, pathStr in ipairs(paths) do
+		local inst = resolveInstancePath(pathStr)
+		if inst then
+			table.insert(instances, inst)
+		end
+	end
+
+	Selection:Set(instances)
+	return true, { selected = #instances }
+end)
+
+poller:registerHandler("create_instance", function(payload)
+	local className = payload and payload.className
+	local parentPath = payload and payload.parentPath
+	if not className or not parentPath then
+		return false, "Missing 'className' or 'parentPath' in payload"
+	end
+
+	local parent = resolveInstancePath(parentPath)
+	if not parent then
+		return false, "Parent not found: " .. tostring(parentPath)
+	end
+
+	local ok, inst = pcall(function()
+		local newInst = Instance.new(className)
+		newInst.Name = payload.name or className
+
+		-- Set initial properties with type coercion
+		if payload.properties then
+			for propName, propValue in pairs(payload.properties) do
+				pcall(function()
+					if type(propValue) == "table" then
+						if propValue.X ~= nil and propValue.Y ~= nil and propValue.Z ~= nil then
+							(newInst :: any)[propName] = Vector3.new(propValue.X, propValue.Y, propValue.Z)
+						elseif propValue.R ~= nil and propValue.G ~= nil and propValue.B ~= nil then
+							(newInst :: any)[propName] = Color3.new(propValue.R, propValue.G, propValue.B)
+						elseif propValue.XScale ~= nil and propValue.XOffset ~= nil and propValue.YScale ~= nil and propValue.YOffset ~= nil then
+							(newInst :: any)[propName] = UDim2.new(propValue.XScale, propValue.XOffset, propValue.YScale, propValue.YOffset)
+						elseif propValue.X ~= nil and propValue.Y ~= nil then
+							(newInst :: any)[propName] = Vector2.new(propValue.X, propValue.Y)
+						end
+					else
+						(newInst :: any)[propName] = propValue
+					end
+				end)
+			end
+		end
+
+		newInst.Parent = parent
+		return newInst
+	end)
+
+	if not ok then
+		return false, "Failed to create instance: " .. tostring(inst)
+	end
+
+	pcall(function()
+		ChangeHistoryService:SetWaypoint("LunaIDE: Create " .. className)
+	end)
+
+	return true, {
+		name = inst.Name,
+		className = inst.ClassName,
+		path = inst:GetFullName(),
+	}
+end)
+
+poller:registerHandler("delete_instance", function(payload)
+	local pathStr = payload and payload.path
+	if not pathStr then
+		return false, "Missing 'path' in payload"
+	end
+
+	local inst = resolveInstancePath(pathStr)
+	if not inst then
+		return false, "Instance not found: " .. tostring(pathStr)
+	end
+
+	-- Guard against destroying top-level services
+	if inst.Parent == game then
+		return false, "Cannot destroy top-level service: " .. inst.Name
+	end
+
+	local name = inst.Name
+	local ok, err = pcall(function()
+		inst:Destroy()
+	end)
+
+	if not ok then
+		return false, "Failed to destroy instance: " .. tostring(err)
+	end
+
+	pcall(function()
+		ChangeHistoryService:SetWaypoint("LunaIDE: Delete " .. name)
+	end)
+
+	return true, { deleted = name }
+end)
+
+poller:registerHandler("set_instance_properties", function(payload)
+	local pathStr = payload and payload.path
+	local properties = payload and payload.properties
+	if not pathStr or not properties then
+		return false, "Missing 'path' or 'properties' in payload"
+	end
+
+	local inst = resolveInstancePath(pathStr)
+	if not inst then
+		return false, "Instance not found: " .. tostring(pathStr)
+	end
+
+	local results = {}
+	for propName, propValue in pairs(properties) do
+		local propOk, propErr = pcall(function()
+			if type(propValue) == "table" then
+				if propValue.X ~= nil and propValue.Y ~= nil and propValue.Z ~= nil then
+					(inst :: any)[propName] = Vector3.new(propValue.X, propValue.Y, propValue.Z)
+				elseif propValue.R ~= nil and propValue.G ~= nil and propValue.B ~= nil then
+					(inst :: any)[propName] = Color3.new(propValue.R, propValue.G, propValue.B)
+				elseif propValue.XScale ~= nil and propValue.XOffset ~= nil and propValue.YScale ~= nil and propValue.YOffset ~= nil then
+					(inst :: any)[propName] = UDim2.new(propValue.XScale, propValue.XOffset, propValue.YScale, propValue.YOffset)
+				elseif propValue.X ~= nil and propValue.Y ~= nil then
+					(inst :: any)[propName] = Vector2.new(propValue.X, propValue.Y)
+				end
+			else
+				(inst :: any)[propName] = propValue
+			end
+		end)
+		if propOk then
+			results[propName] = "ok"
+		else
+			results[propName] = "error: " .. tostring(propErr)
+		end
+	end
+
+	pcall(function()
+		ChangeHistoryService:SetWaypoint("LunaIDE: Set properties on " .. inst.Name)
+	end)
+
+	return true, { path = pathStr, results = results }
+end)
+
+poller:registerHandler("move_rename_instance", function(payload)
+	local pathStr = payload and payload.path
+	if not pathStr then
+		return false, "Missing 'path' in payload"
+	end
+
+	local inst = resolveInstancePath(pathStr)
+	if not inst then
+		return false, "Instance not found: " .. tostring(pathStr)
+	end
+
+	local newName = payload.newName
+	local newParent = payload.newParent
+
+	if not newName and not newParent then
+		return false, "Must provide 'newName' or 'newParent' (or both)"
+	end
+
+	if newName then
+		inst.Name = newName
+	end
+
+	if newParent then
+		local parent = resolveInstancePath(newParent)
+		if not parent then
+			return false, "New parent not found: " .. tostring(newParent)
+		end
+		inst.Parent = parent
+	end
+
+	pcall(function()
+		ChangeHistoryService:SetWaypoint("LunaIDE: Move/rename " .. inst.Name)
+	end)
+
+	return true, {
+		name = inst.Name,
+		path = inst:GetFullName(),
+	}
+end)
+
+poller:registerHandler("manage_tags", function(payload)
+	local action = payload and payload.action
+	local tag = payload and payload.tag
+	if not action or not tag then
+		return false, "Missing 'action' or 'tag' in payload"
+	end
+
+	if action == "add" then
+		local pathStr = payload.path
+		if not pathStr then
+			return false, "Missing 'path' for add action"
+		end
+		local inst = resolveInstancePath(pathStr)
+		if not inst then
+			return false, "Instance not found: " .. tostring(pathStr)
+		end
+		CollectionService:AddTag(inst, tag)
+		pcall(function()
+			ChangeHistoryService:SetWaypoint("LunaIDE: Add tag '" .. tag .. "'")
+		end)
+		return true, { action = "add", tag = tag, path = pathStr }
+
+	elseif action == "remove" then
+		local pathStr = payload.path
+		if not pathStr then
+			return false, "Missing 'path' for remove action"
+		end
+		local inst = resolveInstancePath(pathStr)
+		if not inst then
+			return false, "Instance not found: " .. tostring(pathStr)
+		end
+		CollectionService:RemoveTag(inst, tag)
+		pcall(function()
+			ChangeHistoryService:SetWaypoint("LunaIDE: Remove tag '" .. tag .. "'")
+		end)
+		return true, { action = "remove", tag = tag, path = pathStr }
+
+	elseif action == "get_tagged" then
+		local tagged = CollectionService:GetTagged(tag)
+		local results = {}
+		for _, inst in ipairs(tagged) do
+			table.insert(results, {
+				name = inst.Name,
+				className = inst.ClassName,
+				path = inst:GetFullName(),
+			})
+		end
+		return true, { tag = tag, instances = results }
+
+	else
+		return false, "Invalid action: " .. tostring(action) .. ". Must be 'add', 'remove', or 'get_tagged'."
+	end
+end)
+
 -- Handshake with IDE
 local function performHandshake(): boolean
 	local handshakeData = HttpService:JSONEncode({

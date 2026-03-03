@@ -21,7 +21,14 @@ export type StudioCommandType =
   | 'is_running'
   | 'run_code'
   | 'get_studio_mode'
-  | 'insert_model';
+  | 'insert_model'
+  | 'get_selection'
+  | 'set_selection'
+  | 'create_instance'
+  | 'delete_instance'
+  | 'set_instance_properties'
+  | 'move_rename_instance'
+  | 'manage_tags';
 
 export interface StudioOutputEntry {
   timestamp: number;

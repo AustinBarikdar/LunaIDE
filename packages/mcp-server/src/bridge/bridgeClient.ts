@@ -162,6 +162,48 @@ export class BridgeClient {
         return data.data;
     }
 
+    // --- New AI workflow operations ---
+
+    async getConnectedStudios(): Promise<unknown> {
+        const data = await this.jsonRequest('GET', '/studio/connected');
+        return data.data;
+    }
+
+    async getSelection(studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/selection/get', { studioId });
+        return data.data;
+    }
+
+    async setSelection(paths: string[], studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/selection/set', { paths, studioId });
+        return data.data;
+    }
+
+    async createInstance(className: string, parentPath: string, name?: string, properties?: Record<string, unknown>, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/create-instance', { className, parentPath, name, properties, studioId });
+        return data.data;
+    }
+
+    async deleteInstance(path: string, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/delete-instance', { path, studioId });
+        return data.data;
+    }
+
+    async setInstanceProperties(path: string, properties: Record<string, unknown>, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/set-instance-properties', { path, properties, studioId });
+        return data.data;
+    }
+
+    async moveRenameInstance(path: string, newName?: string, newParent?: string, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/move-rename-instance', { path, newName, newParent, studioId });
+        return data.data;
+    }
+
+    async manageTags(action: string, tag: string, path?: string, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/manage-tags', { action, tag, path, studioId });
+        return data.data;
+    }
+
     // --- OpenCloud operations ---
 
     async publishPlace(universeId: number, placeId: number, filePath: string, versionType?: string): Promise<unknown> {

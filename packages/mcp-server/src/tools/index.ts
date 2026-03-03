@@ -23,6 +23,15 @@ import { startStopPlayTool } from './startStopPlay.js';
 import { insertModelTool } from './insertModel.js';
 import { runScriptInPlayModeTool } from './runScriptInPlayMode.js';
 import { getConsoleOutputTool } from './getConsoleOutput.js';
+import { listSnapshotsTool } from './listSnapshots.js';
+import { getConnectedStudiosTool } from './getConnectedStudios.js';
+import { getSelectionTool } from './getSelection.js';
+import { setSelectionTool } from './setSelection.js';
+import { createInstanceTool } from './createInstance.js';
+import { deleteInstanceTool } from './deleteInstance.js';
+import { setInstancePropertiesTool } from './setInstanceProperties.js';
+import { moveRenameInstanceTool } from './moveRenameInstance.js';
+import { manageTagsTool } from './manageTags.js';
 
 export interface ToolDefinition {
     name: string;
@@ -67,6 +76,16 @@ export function createTools(bridge: BridgeClient, lockManager: LockManager): Too
         insertModelTool(bridge),
         runScriptInPlayModeTool(bridge),
         getConsoleOutputTool(bridge),
+        // New AI workflow tools
+        listSnapshotsTool(bridge),
+        getConnectedStudiosTool(bridge),
+        getSelectionTool(bridge),
+        setSelectionTool(bridge),
+        createInstanceTool(bridge),
+        deleteInstanceTool(bridge),
+        setInstancePropertiesTool(bridge),
+        moveRenameInstanceTool(bridge),
+        manageTagsTool(bridge),
         // OpenCloud
         publishPlaceTool(bridge),
         manageDatastoreTool(bridge),

@@ -154,6 +154,31 @@ export class BridgeServer implements vscode.Disposable {
             else if (method === 'POST' && pathname === '/studio/run-in-play-mode') {
                 result = await this.handleRunScriptInPlayMode(body);
             }
+            // New AI workflow routes
+            else if (method === 'GET' && pathname === '/studio/connected') {
+                result = await this.handleGetConnectedStudios();
+            }
+            else if (method === 'POST' && pathname === '/studio/selection/get') {
+                result = await this.handleGetSelection(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/selection/set') {
+                result = await this.handleSetSelection(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/create-instance') {
+                result = await this.handleCreateInstance(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/delete-instance') {
+                result = await this.handleDeleteInstance(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/set-instance-properties') {
+                result = await this.handleSetInstanceProperties(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/move-rename-instance') {
+                result = await this.handleMoveRenameInstance(body);
+            }
+            else if (method === 'POST' && pathname === '/studio/manage-tags') {
+                result = await this.handleManageTags(body);
+            }
             // OpenCloud
             else if (method === 'POST' && pathname === '/opencloud/publish') {
                 result = await this.handlePublishPlace(body);
@@ -621,6 +646,131 @@ end
             try {
                 await this.studioManager.sendCommand(studioId, 'stop_playtest', {});
             } catch { /* best effort */ }
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    // --- New AI workflow handlers ---
+
+    private async handleGetConnectedStudios(): Promise<BridgeResponse> {
+        const studios = this.studioManager.getConnectedStudios();
+        return { success: true, data: studios };
+    }
+
+    private async handleGetSelection(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'get_selection', {});
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleSetSelection(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'set_selection', {
+                paths: body.paths,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleCreateInstance(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'create_instance', {
+                className: body.className,
+                parentPath: body.parentPath,
+                name: body.name,
+                properties: body.properties,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleDeleteInstance(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'delete_instance', {
+                path: body.path,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleSetInstanceProperties(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'set_instance_properties', {
+                path: body.path,
+                properties: body.properties,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleMoveRenameInstance(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'move_rename_instance', {
+                path: body.path,
+                newName: body.newName,
+                newParent: body.newParent,
+            });
+            return { success: true, data: result };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+    private async handleManageTags(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!studioId) {
+            return { success: false, error: 'No Studio instance connected' };
+        }
+        try {
+            const result = await this.studioManager.sendCommand(studioId, 'manage_tags', {
+                action: body.action,
+                tag: body.tag,
+                path: body.path,
+            });
+            return { success: true, data: result };
+        } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             return { success: false, error: message };
         }
