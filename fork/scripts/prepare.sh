@@ -241,6 +241,7 @@ if [ ! -f "$LUA_BIN_OUT" ]; then
     LUA_TMP=$(mktemp -d /tmp/lua-build-XXXXXX)
     curl -sL "https://www.lua.org/ftp/lua-5.1.5.tar.gz" | tar xz -C "$LUA_TMP"
     make -C "$LUA_TMP/lua-5.1.5" macosx -j"$(sysctl -n hw.logicalcpu)" 2>/dev/null
+    mkdir -p "$(dirname "$LUA_BIN_OUT")"
     cp "$LUA_TMP/lua-5.1.5/src/lua" "$LUA_BIN_OUT"
     chmod +x "$LUA_BIN_OUT"
     rm -rf "$LUA_TMP"
