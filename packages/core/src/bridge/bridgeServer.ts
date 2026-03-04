@@ -523,16 +523,16 @@ export class BridgeServer implements vscode.Disposable {
 
             // 4. Inject the script — wrap to signal completion via print
             const wrappedCode = `
-local __ok, __err = pcall(function()
-${code}
-end)
-if __ok then
-    print("__LUNAIDE_SCRIPT_DONE__")
-else
-    warn("__LUNAIDE_SCRIPT_ERROR__: " .. tostring(__err))
-    print("__LUNAIDE_SCRIPT_DONE__")
-end
-`;
+            local __ok, __err = pcall(function()
+                ${code}
+            end)
+            if __ok then
+                print("__LUNAIDE_SCRIPT_DONE__")
+            else
+                warn("__LUNAIDE_SCRIPT_ERROR__: " .. tostring(__err))
+                print("__LUNAIDE_SCRIPT_DONE__")
+            end
+            `;
             await this.studioManager.sendCommand(studioId, 'inject_script', {
                 source: wrappedCode,
                 name: '_LunaIDE_RunInPlayMode',
