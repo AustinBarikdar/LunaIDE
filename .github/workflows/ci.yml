@@ -34,5 +34,22 @@ jobs:
     - name: Build
       run: pnpm build
 
+    - name: Run configure prep script
+      run: bash fork/scripts/prepare.sh
+
     - name: Lint
       run: pnpm lint
+
+    - name: Test
+      run: pnpm test
+
+    - name: Zipping LunaIDE.app
+      run: |
+        cd ~/LunaIDE-dist
+        zip -r LunaIDE-macOS-arm64.zip LunaIDE.app
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-build
+        path: ~/LunaIDE-dist/LunaIDE-macOS-arm64.zip
