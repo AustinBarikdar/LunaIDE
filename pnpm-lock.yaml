@@ -10,9 +10,6 @@ importers:
 
   packages/core:
     dependencies:
-      diff-match-patch:
-        specifier: ^1.0.5
-        version: 1.0.5
       vscode-languageclient:
         specifier: ^9.0.1
         version: 9.0.1
@@ -20,9 +17,6 @@ importers:
       '@roblox-ide/shared':
         specifier: workspace:*
         version: link:../shared
-      '@types/diff-match-patch':
-        specifier: ^1.0.36
-        version: 1.0.36
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.35
