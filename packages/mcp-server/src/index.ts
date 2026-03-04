@@ -13,7 +13,7 @@ import { createTools, ToolDefinition } from './tools/index.js';
 import { createResources, ResourceDefinition } from './resources/index.js';
 
 async function main(): Promise<void> {
-    const workspacePath = process.argv[2] || process.cwd();
+    const workspacePath = process.argv[2] || process.env.LUNAIDE_WORKSPACE || process.cwd();
 
     console.error(`[${MCP_SERVER_NAME}] Starting MCP server v${MCP_SERVER_VERSION}`);
     console.error(`[${MCP_SERVER_NAME}] Workspace: ${workspacePath}`);

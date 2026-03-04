@@ -2,12 +2,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
-export const AGENT_IDS = ['claudecode', 'codex'] as const;
+export const AGENT_IDS = ['claudecode', 'codexcli'] as const;
 export type AgentId = typeof AGENT_IDS[number];
 
 export const AGENT_LABELS: Record<AgentId, string> = {
     claudecode: 'Claude Code',
-    codex: 'Codex AI',
+    codexcli: 'Codex CLI',
 };
 
 export class AgentConnector {
@@ -33,8 +33,9 @@ export class AgentConnector {
         switch (agentId) {
             case 'claudecode':
                 return workspacePath ? path.join(workspacePath, '.mcp.json') : path.join(home, '.mcp.json');
-            case 'codex':
-                return path.join(home, '.vscode', 'settings.json');
+            case 'codexcli': {
+                return path.join(home, '.codex', 'config.toml');
+            }
             default:
                 return '';
         }
@@ -46,10 +47,9 @@ export class AgentConnector {
             case 'claudecode':
                 return fs.existsSync(path.join(home, '.claude')) ||
                     AgentConnector._tryWhich('claude') !== '';
-            case 'codex':
-                return fs.existsSync(path.join(home, '.vscode', 'extensions')) &&
-                    fs.readdirSync(path.join(home, '.vscode', 'extensions'))
-                        .some((d) => d.toLowerCase().includes('codex'));
+            case 'codexcli': {
+                return AgentConnector._tryWhich('codex') !== '';
+            }
             default:
                 return false;
         }
@@ -60,10 +60,10 @@ export class AgentConnector {
         if (!cfgPath || !fs.existsSync(cfgPath)) return false;
         try {
             const raw = fs.readFileSync(cfgPath, 'utf-8');
-            const json = JSON.parse(raw);
-            if (agentId === 'codex') {
-                return !!(json?.['codex.mcpServers']?.lunaide);
+            if (agentId === 'codexcli') {
+                return raw.includes('[mcpServers.lunaide]');
             }
+            const json = JSON.parse(raw);
             return !!(json?.mcpServers?.lunaide);
         } catch {
             return false;
@@ -81,20 +81,31 @@ export class AgentConnector {
 
         const lunaideEntry = {
             command: node,
-            args: [mcpServer],
+            args: workspacePath ? [mcpServer, workspacePath] : [mcpServer],
         };
 
         fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
 
-        if (agentId === 'codex') {
-            let existing: Record<string, unknown> = {};
+        if (agentId === 'codexcli') {
+            let content = '';
             if (fs.existsSync(cfgPath)) {
-                try { existing = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')); } catch { /* start fresh */ }
+                content = fs.readFileSync(cfgPath, 'utf-8');
             }
-            const servers = (existing['codex.mcpServers'] as Record<string, unknown>) ?? {};
-            servers['lunaide'] = lunaideEntry;
-            existing['codex.mcpServers'] = servers;
-            fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2));
+            const argsToml = workspacePath
+                ? `["${mcpServer}", "${workspacePath}"]`
+                : `["${mcpServer}"]`;
+            const tomlBlock = `[mcpServers.lunaide]\ncommand = "${node}"\nargs = ${argsToml}`;
+            if (content.includes('[mcpServers.lunaide]')) {
+                // Replace the entire existing block
+                content = content.replace(
+                    /\[mcpServers\.lunaide\][^\[]*/s,
+                    tomlBlock + '\n'
+                );
+                fs.writeFileSync(cfgPath, content);
+            } else {
+                fs.appendFileSync(cfgPath, '\n' + tomlBlock + '\n');
+            }
+
         } else {
             let existing: Record<string, unknown> = {};
             if (fs.existsSync(cfgPath)) {

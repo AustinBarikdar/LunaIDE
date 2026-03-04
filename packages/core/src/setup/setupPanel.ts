@@ -130,7 +130,7 @@ export class SetupPanel implements vscode.Disposable {
     private _agentLabel(agentId: string): string {
         switch (agentId) {
             case 'claudecode': return 'Claude Code';
-            case 'codex': return 'Codex AI';
+            case 'codexcli': return 'Codex CLI';
             default: return agentId;
         }
     }
@@ -205,7 +205,7 @@ export class SetupPanel implements vscode.Disposable {
     private _gatherAgents(): AgentItem[] {
         const agents: Array<{ id: string; label: string }> = [
             { id: 'claudecode', label: 'Claude Code' },
-            { id: 'codex', label: 'Codex AI' },
+            { id: 'codexcli', label: 'Codex CLI' },
         ];
 
         const workspace = this._getWorkspacePath();
