@@ -20,7 +20,7 @@ cd "$OUT_DIR"
 
 # Step 1: Get the latest VSCodium download URL for darwin-arm64
 echo "Fetching latest VSCodium release..."
-LATEST_ASSET_URL=$(curl -s "${AUTH_ARGS[@]}" "https://api.github.com/repos/VSCodium/vscodium/releases/latest" | grep "browser_download_url.*darwin-arm64.*\.zip" | cut -d '"' -f 4 | head -n 1)
+LATEST_ASSET_URL=$(curl -s ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} "https://api.github.com/repos/VSCodium/vscodium/releases/latest" | grep "browser_download_url.*darwin-arm64.*\.zip" | cut -d '"' -f 4 | head -n 1)
 
 if [ -z "$LATEST_ASSET_URL" ]; then
     echo "Failed to find VSCodium download URL."
@@ -252,7 +252,7 @@ fi
 
 # Download luau-lsp binary for macOS (bundled into extension)
 echo "Downloading luau-lsp..."
-LUAU_LSP_ASSET_URL=$(curl -s "${AUTH_ARGS[@]}" "https://api.github.com/repos/JohnnyMorganz/luau-lsp/releases/latest" | grep "browser_download_url.*macos\.zip" | cut -d '"' -f 4 | head -n 1)
+LUAU_LSP_ASSET_URL=$(curl -s ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} "https://api.github.com/repos/JohnnyMorganz/luau-lsp/releases/latest" | grep "browser_download_url.*macos\.zip" | cut -d '"' -f 4 | head -n 1)
 if [ -n "$LUAU_LSP_ASSET_URL" ]; then
     mkdir -p "$ROOT_DIR/packages/core/assets/bin"
     TMP_ZIP="/tmp/luau-lsp-$$.zip"
@@ -786,10 +786,12 @@ mkdir -p "$ROBLOX_PLUGINS_DIR"
 
 # 9a: Build the LunaIDE Studio plugin from source
 echo "Building LunaIDE Studio plugin..."
+set +e
 ROJO_BIN=$(find ~/.aftman/tool-storage/rojo-rbx/rojo -name rojo -type f 2>/dev/null | head -1)
 if [ -z "$ROJO_BIN" ]; then
     ROJO_BIN=$(command -v rojo 2>/dev/null)
 fi
+set -e
 
 PLUGIN_OUT="$ROBLOX_PLUGINS_DIR/LunaIDE.rbxmx"
 if [ -n "$ROJO_BIN" ]; then

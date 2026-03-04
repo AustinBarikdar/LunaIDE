@@ -20,7 +20,7 @@ cd "$OUT_DIR"
 
 # Step 1: Get the latest VSCodium download URL for win32-x64 zip
 echo "Fetching latest VSCodium release..."
-LATEST_ASSET_URL=$(curl -s "${AUTH_ARGS[@]}" "https://api.github.com/repos/VSCodium/vscodium/releases/latest" | grep "browser_download_url.*win32-x64-.*\.zip" | cut -d '"' -f 4 | head -n 1)
+LATEST_ASSET_URL=$(curl -s ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} "https://api.github.com/repos/VSCodium/vscodium/releases/latest" | grep "browser_download_url.*win32-x64-.*\.zip" | cut -d '"' -f 4 | head -n 1)
 
 if [ -z "$LATEST_ASSET_URL" ]; then
     echo "Failed to find VSCodium download URL."
@@ -172,7 +172,7 @@ pnpm build
 
 # Step 7: Download Luau LSP for Windows (win64)
 echo "Downloading luau-lsp..."
-LUAU_LSP_ASSET_URL=$(curl -s "${AUTH_ARGS[@]}" "https://api.github.com/repos/JohnnyMorganz/luau-lsp/releases/latest" | grep "browser_download_url.*win64\.zip" | cut -d '"' -f 4 | head -n 1)
+LUAU_LSP_ASSET_URL=$(curl -s ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} "https://api.github.com/repos/JohnnyMorganz/luau-lsp/releases/latest" | grep "browser_download_url.*win64\.zip" | cut -d '"' -f 4 | head -n 1)
 if [ -n "$LUAU_LSP_ASSET_URL" ]; then
     mkdir -p "$ROOT_DIR/packages/core/assets/bin"
     TMP_ZIP="/tmp/luau-lsp-$$.zip"
