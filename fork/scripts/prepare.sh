@@ -8,6 +8,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OUT_DIR="$HOME/LunaIDE-dist"
 
+AUTH_ARGS=()
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    AUTH_ARGS=("-H" "Authorization: Bearer ${GITHUB_TOKEN}")
+fi
+
 echo "=== LunaIDE Fast Build ==="
 
 mkdir -p "$OUT_DIR"
@@ -15,7 +20,7 @@ cd "$OUT_DIR"
 
 # Step 1: Get the latest VSCodium download URL for darwin-arm64
 echo "Fetching latest VSCodium release..."
-LATEST_ASSET_URL=$(curl -s "https://api.github.com/repos/VSCodium/vscodium/releases/latest" | grep "browser_download_url.*darwin-arm64.*\.zip" | cut -d '"' -f 4 | head -n 1)
+LATEST_ASSET_URL=$(curl -s "${AUTH_ARGS[@]}" "https://api.github.com/repos/VSCodium/vscodium/releases/latest" | grep "browser_download_url.*darwin-arm64.*\.zip" | cut -d '"' -f 4 | head -n 1)
 
 if [ -z "$LATEST_ASSET_URL" ]; then
     echo "Failed to find VSCodium download URL."
@@ -246,7 +251,7 @@ fi
 
 # Download luau-lsp binary for macOS (bundled into extension)
 echo "Downloading luau-lsp..."
-LUAU_LSP_ASSET_URL=$(curl -s "https://api.github.com/repos/JohnnyMorganz/luau-lsp/releases/latest" | grep "browser_download_url.*macos\.zip" | cut -d '"' -f 4 | head -n 1)
+LUAU_LSP_ASSET_URL=$(curl -s "${AUTH_ARGS[@]}" "https://api.github.com/repos/JohnnyMorganz/luau-lsp/releases/latest" | grep "browser_download_url.*macos\.zip" | cut -d '"' -f 4 | head -n 1)
 if [ -n "$LUAU_LSP_ASSET_URL" ]; then
     mkdir -p "$ROOT_DIR/packages/core/assets/bin"
     TMP_ZIP="/tmp/luau-lsp-$$.zip"

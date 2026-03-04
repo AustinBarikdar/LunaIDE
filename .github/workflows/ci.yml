@@ -35,6 +35,8 @@ jobs:
       run: pnpm build
 
     - name: Run configure prep script
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: bash fork/scripts/prepare.sh
 
     - name: Lint
@@ -53,3 +55,52 @@ jobs:
       with:
         name: macos-build
         path: ~/LunaIDE-dist/LunaIDE-macOS-arm64.zip
+
+  build-windows:
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 9
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'pnpm'
+
+    - name: Install dependencies
+      run: pnpm install
+
+    - name: Build
+      run: pnpm build
+
+    - name: Run configure prep script
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: bash fork/scripts/prepare-win.sh
+
+    - name: Lint
+      run: pnpm lint
+
+    - name: Test
+      run: pnpm test
+
+    - name: Zipping LunaIDE
+      run: |
+        cd ~/LunaIDE-dist-win
+        7z a LunaIDE-Windows-x64.zip LunaIDE
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-build
+        path: ~/LunaIDE-dist-win/LunaIDE-Windows-x64.zip
