@@ -33,7 +33,6 @@ import { setInstancePropertiesTool } from './setInstanceProperties.js';
 import { moveRenameInstanceTool } from './moveRenameInstance.js';
 import { manageTagsTool } from './manageTags.js';
 import { simulateInputTool } from './simulateInput.js';
-import { captureScreenshotTool } from './captureScreenshot.js';
 
 export type ToolContent =
     | { type: 'text'; text: string }
@@ -93,7 +92,6 @@ export function createTools(bridge: BridgeClient, lockManager: LockManager): Too
         moveRenameInstanceTool(bridge),
         manageTagsTool(bridge),
         simulateInputTool(bridge),
-        captureScreenshotTool(bridge),
         // OpenCloud
         publishPlaceTool(bridge),
         manageDatastoreTool(bridge),
