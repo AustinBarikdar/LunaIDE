@@ -2,148 +2,148 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 
 interface RecentProject {
-    name: string;
-    parentPath: string;
-    fullPath: string;
+  name: string;
+  parentPath: string;
+  fullPath: string;
 }
 
 export interface PlaceData {
-    names: string[];
-    active: string | undefined;
+  names: string[];
+  active: string | undefined;
 }
 
 export class WelcomePanel {
-    public static currentPanel: WelcomePanel | undefined;
-    private readonly _panel: vscode.WebviewPanel;
-    private _disposables: vscode.Disposable[] = [];
+  public static currentPanel: WelcomePanel | undefined;
+  private readonly _panel: vscode.WebviewPanel;
+  private _disposables: vscode.Disposable[] = [];
 
-    private constructor(
-        panel: vscode.WebviewPanel,
-        _extensionUri: vscode.Uri,
-        recentProjects: RecentProject[],
-        totalRecent: number,
-        placeData?: PlaceData,
-    ) {
-        this._panel = panel;
+  private constructor(
+    panel: vscode.WebviewPanel,
+    _extensionUri: vscode.Uri,
+    recentProjects: RecentProject[],
+    totalRecent: number,
+    placeData?: PlaceData,
+  ) {
+    this._panel = panel;
 
-        this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
-        this._panel.webview.html = this._getHtml(recentProjects, totalRecent, placeData);
+    this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+    this._panel.webview.html = this._getHtml(recentProjects, totalRecent, placeData);
 
-        this._panel.webview.onDidReceiveMessage(
-            async (message) => {
-                switch (message.command) {
-                    case 'openProject': {
-                        const uris = await vscode.window.showOpenDialog({
-                            canSelectFiles: false,
-                            canSelectFolders: true,
-                            canSelectMany: false,
-                            openLabel: 'Open Project Folder',
-                        });
-                        if (uris?.[0]) {
-                            vscode.commands.executeCommand('vscode.openFolder', uris[0], false);
-                        }
-                        return;
-                    }
-                    case 'createProject':
-                        vscode.commands.executeCommand('lunaide.createProject');
-                        return;
-                    case 'openRecent':
-                        vscode.commands.executeCommand(
-                            'vscode.openFolder',
-                            vscode.Uri.file(message.path),
-                            false,
-                        );
-                        return;
-                    case 'viewAllRecent':
-                        vscode.commands.executeCommand('workbench.action.openRecent');
-                        return;
-                    case 'cloneRepo':
-                        vscode.commands.executeCommand('git.clone');
-                        return;
-                    case 'openSearch':
-                        vscode.commands.executeCommand('workbench.action.quickOpen');
-                        return;
-                    case 'switchPlace':
-                        vscode.commands.executeCommand('lunaide.switchPlace', message.name as string);
-                        return;
-                }
-            },
-            null,
-            this._disposables,
-        );
-    }
-
-    public static async createOrShow(extensionUri: vscode.Uri, placeData?: PlaceData) {
-        const column = vscode.window.activeTextEditor
-            ? vscode.window.activeTextEditor.viewColumn
-            : undefined;
-
-        if (WelcomePanel.currentPanel) {
-            WelcomePanel.currentPanel._panel.reveal(column);
-            if (placeData) WelcomePanel.refreshPlaces(placeData.names, placeData.active);
+    this._panel.webview.onDidReceiveMessage(
+      async (message) => {
+        switch (message.command) {
+          case 'openProject': {
+            const uris = await vscode.window.showOpenDialog({
+              canSelectFiles: false,
+              canSelectFolders: true,
+              canSelectMany: false,
+              openLabel: 'Open Project Folder',
+            });
+            if (uris?.[0]) {
+              vscode.commands.executeCommand('vscode.openFolder', uris[0], false);
+            }
+            return;
+          }
+          case 'createProject':
+            vscode.commands.executeCommand('lunaide.createProject');
+            return;
+          case 'openRecent':
+            vscode.commands.executeCommand(
+              'vscode.openFolder',
+              vscode.Uri.file(message.path),
+              false,
+            );
+            return;
+          case 'viewAllRecent':
+            vscode.commands.executeCommand('workbench.action.openRecent');
+            return;
+          case 'cloneRepo':
+            vscode.commands.executeCommand('git.clone');
+            return;
+          case 'openSearch':
+            vscode.commands.executeCommand('workbench.action.quickOpen');
+            return;
+          case 'switchPlace':
+            vscode.commands.executeCommand('lunaide.switchPlace', message.name as string);
             return;
         }
+      },
+      null,
+      this._disposables,
+    );
+  }
 
-        const { recentProjects, total } = await WelcomePanel._getRecentProjects();
+  public static async createOrShow(extensionUri: vscode.Uri, placeData?: PlaceData) {
+    const column = vscode.window.activeTextEditor
+      ? vscode.window.activeTextEditor.viewColumn
+      : undefined;
 
-        const panel = vscode.window.createWebviewPanel(
-            'lunaIdeWelcome',
-            'Welcome — LunaIDE',
-            column || vscode.ViewColumn.One,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true,
-            },
-        );
-
-        WelcomePanel.currentPanel = new WelcomePanel(panel, extensionUri, recentProjects, total, placeData);
+    if (WelcomePanel.currentPanel) {
+      WelcomePanel.currentPanel._panel.reveal(column);
+      if (placeData) WelcomePanel.refreshPlaces(placeData.names, placeData.active);
+      return;
     }
 
-    public static refreshPlaces(names: string[], active: string | undefined): void {
-        if (!WelcomePanel.currentPanel) return;
-        void WelcomePanel.currentPanel._panel.webview.postMessage({
-            command: 'updatePlaces', names, active,
-        });
-    }
+    const { recentProjects, total } = await WelcomePanel._getRecentProjects();
 
-    private static async _getRecentProjects(): Promise<{ recentProjects: RecentProject[]; total: number }> {
-        try {
-            const recent = await vscode.commands.executeCommand('_workbench.getRecentlyOpened') as {
-                workspaces?: Array<{ folderUri?: vscode.Uri; workspace?: { configPath: vscode.Uri } }>;
-            };
-            const workspaces = recent?.workspaces ?? [];
-            const folders = workspaces.filter((w) => w.folderUri);
-            const total = folders.length;
-            const recentProjects: RecentProject[] = folders.slice(0, 7).map((w) => {
-                const fsPath = (w.folderUri as vscode.Uri).fsPath;
-                const home = process.env.HOME ?? '';
-                const displayPath = fsPath.startsWith(home)
-                    ? '~' + fsPath.slice(home.length)
-                    : fsPath;
-                return {
-                    name: path.basename(fsPath),
-                    parentPath: path.dirname(displayPath),
-                    fullPath: fsPath,
-                };
-            });
-            return { recentProjects, total };
-        } catch {
-            return { recentProjects: [], total: 0 };
-        }
-    }
+    const panel = vscode.window.createWebviewPanel(
+      'lunaIdeWelcome',
+      'Welcome — LunaIDE',
+      column || vscode.ViewColumn.One,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+      },
+    );
 
-    public dispose() {
-        WelcomePanel.currentPanel = undefined;
-        this._panel.dispose();
-        while (this._disposables.length) {
-            this._disposables.pop()?.dispose();
-        }
-    }
+    WelcomePanel.currentPanel = new WelcomePanel(panel, extensionUri, recentProjects, total, placeData);
+  }
 
-    private _getHtml(recentProjects: RecentProject[], totalRecent: number, placeData?: PlaceData): string {
-        const recentRows = recentProjects.map((p) => {
-            const letter = escapeHtml(p.name.charAt(0).toUpperCase());
-            return `
+  public static refreshPlaces(names: string[], active: string | undefined): void {
+    if (!WelcomePanel.currentPanel) return;
+    void WelcomePanel.currentPanel._panel.webview.postMessage({
+      command: 'updatePlaces', names, active,
+    });
+  }
+
+  private static async _getRecentProjects(): Promise<{ recentProjects: RecentProject[]; total: number }> {
+    try {
+      const recent = await vscode.commands.executeCommand('_workbench.getRecentlyOpened') as {
+        workspaces?: Array<{ folderUri?: vscode.Uri; workspace?: { configPath: vscode.Uri } }>;
+      };
+      const workspaces = recent?.workspaces ?? [];
+      const folders = workspaces.filter((w) => w.folderUri);
+      const total = folders.length;
+      const recentProjects: RecentProject[] = folders.slice(0, 7).map((w) => {
+        const fsPath = (w.folderUri as vscode.Uri).fsPath;
+        const home = process.env.HOME ?? '';
+        const displayPath = fsPath.startsWith(home)
+          ? '~' + fsPath.slice(home.length)
+          : fsPath;
+        return {
+          name: path.basename(fsPath),
+          parentPath: path.dirname(displayPath),
+          fullPath: fsPath,
+        };
+      });
+      return { recentProjects, total };
+    } catch {
+      return { recentProjects: [], total: 0 };
+    }
+  }
+
+  public dispose() {
+    WelcomePanel.currentPanel = undefined;
+    this._panel.dispose();
+    while (this._disposables.length) {
+      this._disposables.pop()?.dispose();
+    }
+  }
+
+  private _getHtml(recentProjects: RecentProject[], totalRecent: number, placeData?: PlaceData): string {
+    const recentRows = recentProjects.map((p) => {
+      const letter = escapeHtml(p.name.charAt(0).toUpperCase());
+      return `
             <div class="recent-row" onclick="openRecent(${escapeHtml(JSON.stringify(p.fullPath))})">
                 <div class="recent-avatar">${letter}</div>
                 <div class="recent-info">
@@ -151,21 +151,21 @@ export class WelcomePanel {
                     <span class="recent-path">${escapeHtml(p.parentPath + '/' + p.name)}</span>
                 </div>
             </div>`;
-        }).join('');
+    }).join('');
 
-        const showMoreBtn = totalRecent > recentProjects.length ? `
+    const showMoreBtn = totalRecent > recentProjects.length ? `
             <div class="show-more" onclick="viewAll()">
                 <span class="show-more-dots">···</span> Show more projects
             </div>` : '';
 
-        const placesSection = (placeData && placeData.names.length > 0) ? `
+    const placesSection = (placeData && placeData.names.length > 0) ? `
 <div class="place-section">
   <div class="section-label">Places</div>
   <div class="place-grid">
     ${placeData.names.map(n => {
-        const isActive = n === placeData.active;
-        const safeName = escapeHtml(n);
-        return `
+      const isActive = n === placeData.active;
+      const safeName = escapeHtml(n);
+      return `
     <div class="place-card${isActive ? ' active' : ''}" data-place="${safeName}"
          onclick="switchToPlace(${escapeHtml(JSON.stringify(n))})">
       <div class="place-card-icon">
@@ -181,7 +181,7 @@ export class WelcomePanel {
   </div>
 </div>` : '';
 
-        return `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -550,6 +550,20 @@ export class WelcomePanel {
           </div>
         </div>
 
+        <div class="action-row" onclick="openProject()">
+          <div class="action-icon-wrap">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </div>
+          <div class="action-text">
+            <div class="action-title">Import Existing Project</div>
+            <div class="action-desc">Convert a standard Rojo project</div>
+          </div>
+        </div>
+
         <div class="action-row" onclick="cloneRepo()">
           <div class="action-icon-wrap">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -628,13 +642,13 @@ export class WelcomePanel {
 </script>
 </body>
 </html>`;
-    }
+  }
 }
 
 function escapeHtml(str: string): string {
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }

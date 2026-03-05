@@ -34,12 +34,13 @@ export class CreateProjectPanel {
             return;
           }
           case 'create': {
-            const { projectName, location, placeName, placeId, profileName } = message as {
+            const { projectName, location, placeName, placeId, profileName, customServices } = message as {
               projectName: string;
               location: string;
               placeName: string;
               placeId: string;
               profileName: string;
+              customServices?: string[];
             };
             await this._createProject(
               projectName.trim(),
@@ -47,6 +48,7 @@ export class CreateProjectPanel {
               placeName.trim(),
               placeId?.trim() ? parseInt(placeId.trim(), 10) : undefined,
               profileName || 'Standard',
+              customServices
             );
             return;
           }
@@ -79,10 +81,25 @@ export class CreateProjectPanel {
     placeName: string,
     placeId: number | undefined,
     profileName: string,
+    customServices?: string[]
   ): Promise<void> {
     const projectPath = path.join(location, projectName);
     const projectUri = vscode.Uri.file(projectPath);
-    const profile: Profile = BUILT_IN_PROFILES[profileName] ?? BUILT_IN_PROFILES['Standard'];
+
+    let profile: Profile;
+    if (profileName === 'Custom' && customServices) {
+      profile = { name: 'Custom', services: {} };
+      for (const svc of customServices) {
+        let srcName = svc;
+        if (svc === 'ServerScriptService') srcName = 'server';
+        else if (svc === 'ReplicatedStorage') srcName = 'shared';
+        else if (svc === 'StarterPlayer.StarterPlayerScripts') srcName = 'client';
+        else if (svc.startsWith('StarterPlayer.')) srcName = svc.replace('StarterPlayer.', '');
+        profile.services[svc] = { name: svc.split('.').pop()!, src: `src/${srcName}` };
+      }
+    } else {
+      profile = BUILT_IN_PROFILES[profileName] ?? BUILT_IN_PROFILES['Standard'];
+    }
 
     try {
       // Create project directory
@@ -445,6 +462,33 @@ export class CreateProjectPanel {
     line-height: 1.4;
   }
 
+  .custom-builder {
+    display: none;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--tn-bg-highlight);
+    border: 1px solid var(--tn-border);
+    border-radius: 8px;
+  }
+
+  .custom-builder label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--tn-fg);
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: normal;
+  }
+
+  .custom-builder input[type="checkbox"] {
+    accent-color: var(--tn-blue);
+  }
+
   .create-btn {
     background: var(--tn-blue);
     color: var(--tn-bg-dark);
@@ -521,6 +565,24 @@ export class CreateProjectPanel {
         <div class="profile-name">Minimal</div>
         <div class="profile-desc">Server + Shared only</div>
       </div>
+      <div class="profile-card" data-profile="Custom" onclick="selectProfile(this)">
+        <div class="profile-name">Custom</div>
+        <div class="profile-desc">Select specific services</div>
+      </div>
+    </div>
+    
+    <div id="customBuilder" class="custom-builder">
+      <label><input type="checkbox" value="Workspace" class="service-cb"> Workspace</label>
+      <label><input type="checkbox" value="ReplicatedFirst" class="service-cb"> ReplicatedFirst</label>
+      <label><input type="checkbox" value="ReplicatedStorage" class="service-cb" checked> ReplicatedStorage (Shared)</label>
+      <label><input type="checkbox" value="ServerScriptService" class="service-cb" checked> ServerScriptService</label>
+      <label><input type="checkbox" value="ServerStorage" class="service-cb"> ServerStorage</label>
+      <label><input type="checkbox" value="StarterGui" class="service-cb"> StarterGui</label>
+      <label><input type="checkbox" value="StarterPack" class="service-cb"> StarterPack</label>
+      <label><input type="checkbox" value="StarterPlayer.StarterPlayerScripts" class="service-cb" checked> StarterPlayerScripts (Client)</label>
+      <label><input type="checkbox" value="StarterPlayer.StarterCharacterScripts" class="service-cb"> StarterCharacterScripts</label>
+      <label><input type="checkbox" value="Lighting" class="service-cb"> Lighting</label>
+      <label><input type="checkbox" value="SoundService" class="service-cb"> SoundService</label>
     </div>
   </div>
 
@@ -543,6 +605,7 @@ export class CreateProjectPanel {
     document.querySelectorAll('.profile-card').forEach(c => c.classList.remove('selected'));
     card.classList.add('selected');
     selectedProfile = card.dataset.profile;
+    document.getElementById('customBuilder').style.display = selectedProfile === 'Custom' ? 'grid' : 'none';
   }
 
   function updatePreview() {
@@ -581,6 +644,14 @@ export class CreateProjectPanel {
     if (createBtn.disabled) return;
     const placeIdVal = placeIdEl.value.trim();
     if (placeIdVal && !/^\\d+$/.test(placeIdVal)) return;
+
+    let customServices = [];
+    if (selectedProfile === 'Custom') {
+      const checks = document.querySelectorAll('.service-cb:checked');
+      checks.forEach(c => customServices.push((c).value));
+      if (customServices.length === 0) return; // Must select at least one
+    }
+
     vscode.postMessage({
       command: 'create',
       projectName: projectNameEl.value,
@@ -588,6 +659,7 @@ export class CreateProjectPanel {
       placeName: placeNameEl.value,
       placeId: placeIdVal,
       profileName: selectedProfile,
+      customServices: customServices.length > 0 ? customServices : undefined
     });
   }
 
