@@ -640,7 +640,77 @@ poller:registerHandler("manage_tags", function(payload)
 	end
 end)
 
-local VirtualUser = game:GetService("VirtualUser")
+-- simulate_input: Direct character manipulation (no VirtualUser needed)
+-- VirtualUser requires LocalUser capability which is unavailable to plugins.
+-- Instead, we directly manipulate the player's Humanoid and character.
+
+local _activeKeys: { [string]: boolean } = {}
+
+local function getFirstPlayer(): Player?
+	local Players = game:GetService("Players")
+	local players = Players:GetPlayers()
+	return players[1]
+end
+
+local function getHumanoid(): Humanoid?
+	local player = getFirstPlayer()
+	if not player then return nil end
+	local character = player.Character
+	if not character then return nil end
+	return character:FindFirstChildOfClass("Humanoid")
+end
+
+local function getMoveDirection(): Vector3
+	local forward = if _activeKeys["W"] then 1 else 0
+	local backward = if _activeKeys["S"] then 1 else 0
+	local left = if _activeKeys["A"] then 1 else 0
+	local right = if _activeKeys["D"] then 1 else 0
+
+	local z = backward - forward -- Roblox Z: positive = backward
+	local x = right - left
+
+	local dir = Vector3.new(x, 0, z)
+	if dir.Magnitude > 0 then
+		dir = dir.Unit
+	end
+	return dir
+end
+
+local function applyMovement()
+	local humanoid = getHumanoid()
+	if not humanoid then return end
+
+	local dir = getMoveDirection()
+
+	-- Get camera-relative direction if possible
+	local player = getFirstPlayer()
+	if player then
+		local character = player.Character
+		if character then
+			local rootPart = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if rootPart then
+				-- Use camera look direction if available, fallback to rootPart orientation
+				local camera = (game.Workspace :: any).CurrentCamera
+				if camera then
+					local camCF = camera.CFrame
+					local camLook = camCF.LookVector
+					-- Project camera look onto XZ plane
+					local flatLook = Vector3.new(camLook.X, 0, camLook.Z)
+					if flatLook.Magnitude > 0.001 then
+						flatLook = flatLook.Unit
+						local flatRight = Vector3.new(flatLook.Z, 0, -flatLook.X)
+						dir = flatLook * -dir.Z + flatRight * dir.X
+						if dir.Magnitude > 0 then
+							dir = dir.Unit
+						end
+					end
+				end
+			end
+		end
+	end
+
+	humanoid:Move(dir, false)
+end
 
 poller:registerHandler("simulate_input", function(payload)
 	local action = payload and payload.action
@@ -660,63 +730,70 @@ poller:registerHandler("simulate_input", function(payload)
 		end
 	end
 
-	-- Default mouse position to viewport center
-	local camera = workspace.CurrentCamera
-	local viewportSize = camera and camera.ViewportSize or Vector2.new(800, 600)
-	local x = payload.x or math.floor(viewportSize.X / 2)
-	local y = payload.y or math.floor(viewportSize.Y / 2)
+	local keyName = payload.key
+	local x = payload.x or 400
+	local y = payload.y or 300
 
 	local ok, err = pcall(function()
-		if action == "click" then
-			VirtualUser:ClickButton1(Vector2.new(x, y))
+		local humanoid = getHumanoid()
 
-		elseif action == "button1_down" then
-			VirtualUser:Button1Down(Vector2.new(x, y))
+		if action == "set_key_down" or action == "key_down" then
+			if not keyName then error("Missing 'key' for key_down action") end
+			_activeKeys[keyName] = true
 
-		elseif action == "button1_up" then
-			VirtualUser:Button1Up(Vector2.new(x, y))
+			-- Handle jump
+			if keyName == "Space" and humanoid then
+				humanoid.Jump = true
+			end
 
-		elseif action == "button2_down" then
-			VirtualUser:Button2Down(Vector2.new(x, y))
+			applyMovement()
 
-		elseif action == "button2_up" then
-			VirtualUser:Button2Up(Vector2.new(x, y))
-
-		elseif action == "move_mouse" then
-			VirtualUser:MoveMouse(Vector2.new(x, y))
+		elseif action == "set_key_up" or action == "key_up" then
+			if not keyName then error("Missing 'key' for key_up action") end
+			_activeKeys[keyName] = nil
+			applyMovement()
 
 		elseif action == "type_key" then
-			local keyName = payload.key
-			if not keyName then
-				error("Missing 'key' for type_key action")
-			end
-			local keyCode = Enum.KeyCode[keyName]
-			if not keyCode then
-				error("Invalid KeyCode: " .. tostring(keyName))
-			end
-			VirtualUser:TypeKey(keyCode)
+			if not keyName then error("Missing 'key' for type_key action") end
 
-		elseif action == "key_down" or action == "set_key_down" then
-			local keyName = payload.key
-			if not keyName then
-				error("Missing 'key' for " .. action .. " action")
-			end
-			local keyCode = Enum.KeyCode[keyName]
-			if not keyCode then
-				error("Invalid KeyCode: " .. tostring(keyName))
-			end
-			VirtualUser:SetKeyDown(keyCode)
+			-- Momentary press: set key down, apply, wait, release
+			_activeKeys[keyName] = true
 
-		elseif action == "key_up" or action == "set_key_up" then
-			local keyName = payload.key
-			if not keyName then
-				error("Missing 'key' for " .. action .. " action")
+			if keyName == "Space" and humanoid then
+				humanoid.Jump = true
 			end
-			local keyCode = Enum.KeyCode[keyName]
-			if not keyCode then
-				error("Invalid KeyCode: " .. tostring(keyName))
+
+			applyMovement()
+			task.wait(0.05) -- Hold for a moment
+			_activeKeys[keyName] = nil
+			applyMovement()
+
+		elseif action == "click" or action == "button1_down" then
+			-- Simulate tool activation if player has a tool equipped
+			local player = getFirstPlayer()
+			if player and player.Character then
+				local tool = player.Character:FindFirstChildOfClass("Tool")
+				if tool then
+					(tool :: any):Activate()
+				end
 			end
-			VirtualUser:SetKeyUp(keyCode)
+
+		elseif action == "button1_up" then
+			local player = getFirstPlayer()
+			if player and player.Character then
+				local tool = player.Character:FindFirstChildOfClass("Tool")
+				if tool then
+					(tool :: any):Deactivate()
+				end
+			end
+
+		elseif action == "button2_down" or action == "button2_up" then
+			-- Right-click: no direct equivalent server-side
+			-- Could be used for camera rotation but not easily done from server
+
+		elseif action == "move_mouse" then
+			-- Move the camera to look at a position (not easily done from server)
+			-- This is a best-effort no-op from server side
 
 		else
 			error("Unknown action: " .. tostring(action))
@@ -724,10 +801,10 @@ poller:registerHandler("simulate_input", function(payload)
 	end)
 
 	if not ok then
-		return false, tostring(err)
+		return false, "simulate_input error: " .. tostring(err)
 	end
 
-	return true, { action = action, key = payload.key, x = x, y = y }
+	return true, { action = action, key = keyName, x = x, y = y }
 end)
 
 -- Handshake with IDE

@@ -41,8 +41,10 @@ Open a folder containing a `default.project.json` file. The extension will:
 
 ### 5. Connect an AI Agent
 
-Configure your AI client (Claude Code, Cursor, etc.) with the MCP server:
+Configure your AI client with the MCP server:
 
+**For Claude Code, Cursor, Windsurf (JSON-based):**
+Add the following to your MCP configuration file (e.g., `~/.claude.json`):
 ```json
 {
   "mcpServers": {
@@ -52,6 +54,14 @@ Configure your AI client (Claude Code, Cursor, etc.) with the MCP server:
     }
   }
 }
+```
+
+**For Codex CLI (TOML-based):**
+Add the following to your `~/.codex/config.toml` file:
+```toml
+[mcp_servers.lunaide]
+command = "node"
+args = ["packages/mcp-server/dist/index.js", "/path/to/your/project"]
 ```
 
 ## Key Features

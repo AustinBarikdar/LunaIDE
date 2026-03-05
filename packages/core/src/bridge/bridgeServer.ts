@@ -139,10 +139,65 @@ export class BridgeServer implements vscode.Disposable {
         }
     }
 
+    // --- Helper for Studio Paths ---
+
+    private resolveStudioPath(filePath: string): string | null {
+        try {
+            const sourcemapPath = path.join(this.workspaceRoot, 'sourcemap.json');
+            if (!fs.existsSync(sourcemapPath)) return null;
+
+            const sourcemap = JSON.parse(fs.readFileSync(sourcemapPath, 'utf-8'));
+            const absFilePath = path.resolve(filePath); // Ensure absolute
+
+            const findNode = (node: any, currentPath: string): string | null => {
+                if (node.filePaths) {
+                    for (const fp of node.filePaths) {
+                        const absFp = path.resolve(this.workspaceRoot, fp);
+                        if (absFp === absFilePath) return currentPath;
+                    }
+                }
+                if (node.children) {
+                    for (const child of node.children) {
+                        const childPath = currentPath === 'game' ? child.name : `${currentPath}.${child.name}`;
+                        const found = findNode(child, childPath);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            };
+
+            return findNode(sourcemap, 'game');
+        } catch (err) {
+            this.log(`Error reading sourcemap: ${err}`);
+            return null;
+        }
+    }
+
     // --- Script handlers ---
 
     private async handleReadScript(body: Record<string, unknown>): Promise<BridgeResponse> {
         const filePath = this.resolvePath(body.filePath as string);
+
+        // 1. Try to read from Studio first if it's connected
+        const studioId = this.studioManager.getFirstStudioId();
+        if (studioId) {
+            const studioPath = this.resolveStudioPath(filePath);
+            if (studioPath) {
+                try {
+                    const result = await this.studioManager.sendCommand(studioId, 'get_instance_properties', {
+                        path: studioPath,
+                    }) as { properties?: Record<string, unknown> };
+
+                    if (result?.properties?.Source !== undefined) {
+                        return { success: true, data: result.properties.Source as string };
+                    }
+                } catch (err) {
+                    this.log(`Failed to read from Studio, falling back to FS: ${err}`);
+                }
+            }
+        }
+
+        // 2. Fall back to reading from local file system
         if (!fs.existsSync(filePath)) {
             return { success: false, error: `File not found: ${filePath}` };
         }
@@ -164,6 +219,23 @@ export class BridgeServer implements vscode.Disposable {
             fs.mkdirSync(dir, { recursive: true });
         }
         fs.writeFileSync(filePath, content, 'utf-8');
+
+        // Also update Studio directly if connected
+        const studioId = this.studioManager.getFirstStudioId();
+        if (studioId) {
+            const studioPath = this.resolveStudioPath(filePath);
+            if (studioPath) {
+                try {
+                    await this.studioManager.sendCommand(studioId, 'set_instance_properties', {
+                        path: studioPath,
+                        properties: { Source: content },
+                    });
+                } catch (err) {
+                    this.log(`Failed to write to Studio: ${err}`);
+                    // We don't fail the overall write, since it succeeded on disk
+                }
+            }
+        }
 
         return { success: true };
     }
@@ -345,13 +417,16 @@ export class BridgeServer implements vscode.Disposable {
     // --- Studio handlers ---
 
     private async handleInjectScript(body: Record<string, unknown>): Promise<BridgeResponse> {
-        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
-        if (!studioId) {
+        const allStudios = this.studioManager.getConnectedStudios();
+        if (allStudios.length === 0) {
             return { success: false, error: 'No Studio instance connected' };
         }
 
+        // During play mode, inject into the Server DataModel (where scripts actually execute).
+        const targetId = body.studioId as string || await this.findRunningStudioId() || allStudios[0].studioId;
+
         try {
-            const result = await this.studioManager.sendCommand(studioId, 'inject_script', {
+            const result = await this.studioManager.sendCommand(targetId, 'inject_script', {
                 source: body.source,
                 name: body.name,
             });
@@ -405,13 +480,16 @@ export class BridgeServer implements vscode.Disposable {
     // --- Studio control handlers (merged from Roblox Studio MCP) ---
 
     private async handleRunCode(body: Record<string, unknown>): Promise<BridgeResponse> {
-        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
-        if (!studioId) {
+        const allStudios = this.studioManager.getConnectedStudios();
+        if (allStudios.length === 0) {
             return { success: false, error: 'No Studio instance connected' };
         }
 
+        // During play mode, prefer the Server DataModel (live game state).
+        const targetId = body.studioId as string || await this.findRunningStudioId() || allStudios[0].studioId;
+
         try {
-            const result = await this.studioManager.sendCommand(studioId, 'run_code', {
+            const result = await this.studioManager.sendCommand(targetId, 'run_code', {
                 command: body.command,
             });
             return { success: true, data: result };
@@ -434,14 +512,17 @@ export class BridgeServer implements vscode.Disposable {
         const idsToQuery = studioId ? [studioId] : allStudios.map((s) => s.studioId);
 
         try {
-            const modes = await Promise.all(
-                idsToQuery.map((sid) =>
-                    this.studioManager
-                        .sendCommand(sid, 'get_studio_mode', {})
-                        .then((r) => (r as { mode?: string })?.mode || 'stop')
-                        .catch(() => 'stop'),
-                ),
-            );
+            // Use a short per-studio timeout (5s) to avoid stale sessions blocking the query
+            const queryWithTimeout = (sid: string) => {
+                const timeout = new Promise<string>((resolve) => setTimeout(() => resolve('stop'), 5000));
+                const query = this.studioManager
+                    .sendCommand(sid, 'get_studio_mode', {})
+                    .then((r) => (r as { mode?: string })?.mode || 'stop')
+                    .catch(() => 'stop');
+                return Promise.race([query, timeout]);
+            };
+
+            const modes = await Promise.all(idsToQuery.map(queryWithTimeout));
             const activeMode = modes.find((m) => m !== 'stop');
             return { success: true, data: { mode: activeMode || 'stop' } };
         } catch (err) {
@@ -494,8 +575,10 @@ export class BridgeServer implements vscode.Disposable {
     }
 
     private async handleRunScriptInPlayMode(body: Record<string, unknown>): Promise<BridgeResponse> {
-        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
-        if (!studioId) {
+        // Use the Edit DataModel studio for starting/stopping play,
+        // but discover the Server DataModel for injecting code.
+        const editStudioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
+        if (!editStudioId) {
             return { success: false, error: 'No Studio instance connected' };
         }
 
@@ -504,24 +587,27 @@ export class BridgeServer implements vscode.Disposable {
         const timeout = (body.timeout as number) || 100;
 
         try {
-            // 1. Start play mode
+            // 1. Start play mode (via the Edit DataModel)
             const playtestMode = mode === 'run_server' ? 'Run' : 'Play';
-            await this.studioManager.sendCommand(studioId, 'start_playtest', { mode: playtestMode });
+            await this.studioManager.sendCommand(editStudioId, 'start_playtest', { mode: playtestMode });
 
-            // 2. Wait for play to start (poll is_running)
-            const startDeadline = Date.now() + 10_000;
+            // 2. Wait for the Server DataModel plugin to connect and report running.
+            //    After starting play, a new plugin instance spawns with a different studio ID.
+            let serverStudioId: string | null = null;
+            const startDeadline = Date.now() + 15_000;
             while (Date.now() < startDeadline) {
-                await new Promise((r) => setTimeout(r, 500));
-                try {
-                    const status = await this.studioManager.sendCommand(studioId, 'is_running', {}) as { isRunning: boolean };
-                    if (status?.isRunning) break;
-                } catch { /* retry */ }
+                await new Promise((r) => setTimeout(r, 300));
+                serverStudioId = await this.findRunningStudioId();
+                if (serverStudioId) break;
             }
+
+            // Fall back to edit studio if we can't find the server one
+            const runStudioId = serverStudioId || editStudioId;
 
             // 3. Record timestamp before injection
             const beforeTs = Date.now();
 
-            // 4. Inject the script — wrap to signal completion via print
+            // 4. Inject the script into the Server DataModel — wrap to signal completion via print
             const wrappedCode = `
             local __ok, __err = pcall(function()
                 ${code}
@@ -533,12 +619,13 @@ export class BridgeServer implements vscode.Disposable {
                 print("__LUNAIDE_SCRIPT_DONE__")
             end
             `;
-            await this.studioManager.sendCommand(studioId, 'inject_script', {
+            await this.studioManager.sendCommand(runStudioId, 'inject_script', {
                 source: wrappedCode,
                 name: '_LunaIDE_RunInPlayMode',
             });
 
             // 5. Poll output for completion or timeout
+            //    Check output from BOTH studios (server output may come from either)
             const deadline = Date.now() + (timeout * 1000);
             let scriptOutput: string[] = [];
             let scriptError = '';
@@ -546,8 +633,12 @@ export class BridgeServer implements vscode.Disposable {
             let doneFound = false;
 
             while (Date.now() < deadline) {
-                await new Promise((r) => setTimeout(r, 500));
-                const output = this.studioManager.getOutput(studioId, beforeTs);
+                await new Promise((r) => setTimeout(r, 300));
+                // Check output from the server studio and the edit studio
+                const output = [
+                    ...this.studioManager.getOutput(runStudioId, beforeTs),
+                    ...(runStudioId !== editStudioId ? this.studioManager.getOutput(editStudioId, beforeTs) : []),
+                ];
                 const allMessages = output.map((e) => e.message);
 
                 // Check for completion signal
@@ -569,16 +660,18 @@ export class BridgeServer implements vscode.Disposable {
 
             if (!doneFound) {
                 isTimeout = true;
-                // Collect whatever output we have
-                const output = this.studioManager.getOutput(studioId, beforeTs);
+                const output = [
+                    ...this.studioManager.getOutput(runStudioId, beforeTs),
+                    ...(runStudioId !== editStudioId ? this.studioManager.getOutput(editStudioId, beforeTs) : []),
+                ];
                 scriptOutput = output
                     .filter((e) => !e.message.includes('__LUNAIDE_SCRIPT_'))
                     .map((e) => e.message);
             }
 
-            // 6. Stop play
+            // 6. Stop play (via the Edit DataModel)
             try {
-                await this.studioManager.sendCommand(studioId, 'stop_playtest', {});
+                await this.studioManager.sendCommand(editStudioId, 'stop_playtest', {});
             } catch { /* best effort */ }
 
             return {
@@ -596,7 +689,7 @@ export class BridgeServer implements vscode.Disposable {
         } catch (err) {
             // Try to stop play on error
             try {
-                await this.studioManager.sendCommand(studioId, 'stop_playtest', {});
+                await this.studioManager.sendCommand(editStudioId, 'stop_playtest', {});
             } catch { /* best effort */ }
             const message = err instanceof Error ? err.message : String(err);
             return { success: false, error: message };
@@ -729,22 +822,27 @@ export class BridgeServer implements vscode.Disposable {
     }
 
     private async handleSimulateInput(body: Record<string, unknown>): Promise<BridgeResponse> {
-        const studioId = (body.studioId as string) || this.studioManager.getFirstStudioId();
-        if (!studioId) {
+        let studioIds = body.studioId ? [body.studioId as string] : this.studioManager.getConnectedStudios().map(s => s.studioId);
+        if (studioIds.length === 0) {
             return { success: false, error: 'No Studio instance connected' };
         }
-        try {
-            const result = await this.studioManager.sendCommand(studioId, 'simulate_input', {
-                action: body.action,
-                key: body.key,
-                x: body.x,
-                y: body.y,
-            });
-            return { success: true, data: result };
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return { success: false, error: message };
+
+        let lastErr = new Error('Unknown error');
+        for (const studioId of studioIds) {
+            try {
+                const result = await this.studioManager.sendCommand(studioId, 'simulate_input', {
+                    action: body.action,
+                    key: body.key,
+                    x: body.x,
+                    y: body.y,
+                });
+                return { success: true, data: result };
+            } catch (err) {
+                lastErr = err as Error;
+            }
         }
+
+        return { success: false, error: lastErr.message };
     }
 
     // --- OpenCloud handlers ---
@@ -816,6 +914,30 @@ export class BridgeServer implements vscode.Disposable {
     }
 
     // --- Utilities ---
+
+    /** Find the studio ID of the Server DataModel (the one that reports is_running during play). */
+    private async findRunningStudioId(): Promise<string | null> {
+        const allStudios = this.studioManager.getConnectedStudios();
+        if (allStudios.length <= 1) return allStudios[0]?.studioId || null;
+
+        const results = await Promise.all(
+            allStudios.map(async (s) => {
+                try {
+                    const r = await Promise.race([
+                        this.studioManager.sendCommand(s.studioId, 'is_running', {}),
+                        new Promise<{ isRunning: boolean }>((resolve) =>
+                            setTimeout(() => resolve({ isRunning: false }), 5000)
+                        ),
+                    ]) as { isRunning?: boolean };
+                    return { studioId: s.studioId, running: r?.isRunning === true };
+                } catch {
+                    return { studioId: s.studioId, running: false };
+                }
+            })
+        );
+
+        return results.find((r) => r.running)?.studioId || null;
+    }
 
     private resolvePath(filePath: string): string {
         if (path.isAbsolute(filePath)) return filePath;

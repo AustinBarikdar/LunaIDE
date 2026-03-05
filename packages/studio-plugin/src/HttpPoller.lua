@@ -14,7 +14,7 @@ function HttpPoller.new(baseUrl: string, studioId: string)
 	self._studioId = studioId
 	self._handlers = {} :: { [string]: (payload: any) -> (boolean, any?) }
 	self._running = false
-	self._pollInterval = 0.5
+	self._pollInterval = 0.1
 	return self
 end
 

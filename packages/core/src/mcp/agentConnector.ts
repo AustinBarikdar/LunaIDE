@@ -61,7 +61,7 @@ export class AgentConnector {
         try {
             const raw = fs.readFileSync(cfgPath, 'utf-8');
             if (agentId === 'codexcli') {
-                return raw.includes('[mcpServers.lunaide]');
+                return raw.includes('[mcp_servers.lunaide]');
             }
             const json = JSON.parse(raw);
             return !!(json?.mcpServers?.lunaide);
@@ -94,11 +94,11 @@ export class AgentConnector {
             const argsToml = workspacePath
                 ? `["${mcpServer}", "${workspacePath}"]`
                 : `["${mcpServer}"]`;
-            const tomlBlock = `[mcpServers.lunaide]\ncommand = "${node}"\nargs = ${argsToml}`;
-            if (content.includes('[mcpServers.lunaide]')) {
-                // Replace the entire existing block
+            const tomlBlock = `[mcp_servers.lunaide]\ncommand = "${node}"\nargs = ${argsToml}`;
+            if (content.includes('[mcp_servers.lunaide]') || content.includes('[mcpServers.lunaide]')) {
+                // Replace the entire existing block up to the next section or EOF
                 content = content.replace(
-                    /\[mcpServers\.lunaide\][^\[]*/s,
+                    /\[(mcp_servers|mcpServers)\.lunaide\][\s\S]*?(?=\n\[|$)/,
                     tomlBlock + '\n'
                 );
                 fs.writeFileSync(cfgPath, content);

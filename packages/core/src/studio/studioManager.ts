@@ -23,14 +23,36 @@ export class StudioManager implements vscode.Disposable {
     private outputChannel: vscode.OutputChannel;
     private maxOutputBuffer = 2000;
     private commandTimeout = 30_000; // 30 seconds
+    private staleTimeout = 60_000; // 60 seconds — remove studios that haven't polled
+    private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
     constructor() {
         this.outputChannel = vscode.window.createOutputChannel('LunaIDE: Studio');
+        // Periodically prune stale studio sessions
+        this.cleanupTimer = setInterval(() => this.pruneStale(), 30_000);
+    }
+
+    /** Remove studios that haven't polled within the stale timeout. */
+    private pruneStale(): void {
+        const now = Date.now();
+        for (const [id, studio] of this.studios) {
+            if (now - studio.lastSeen > this.staleTimeout) {
+                // Reject any pending commands
+                for (const [cmdId, pending] of studio.pendingResults) {
+                    pending.reject(new Error('Studio disconnected (stale)'));
+                }
+                this.studios.delete(id);
+                this.log(`Pruned stale studio: ${id} (last seen ${Math.round((now - studio.lastSeen) / 1000)}s ago)`);
+            }
+        }
     }
 
     // --- Studio lifecycle ---
 
     registerStudio(studioId: string, version: string, placeId?: number, placeName?: string): void {
+        // Prune stale sessions on each handshake
+        this.pruneStale();
+
         const existing = this.studios.get(studioId);
         if (existing) {
             existing.lastSeen = Date.now();
@@ -181,6 +203,10 @@ export class StudioManager implements vscode.Disposable {
     }
 
     dispose(): void {
+        if (this.cleanupTimer) {
+            clearInterval(this.cleanupTimer);
+            this.cleanupTimer = null;
+        }
         this.studios.clear();
         this.outputChannel.dispose();
     }
