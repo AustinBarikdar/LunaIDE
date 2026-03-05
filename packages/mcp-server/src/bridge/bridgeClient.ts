@@ -209,6 +209,11 @@ export class BridgeClient {
         return data.data;
     }
 
+    async captureScreenshot(resolution?: number, studioId?: string): Promise<unknown> {
+        const data = await this.jsonRequest('POST', '/studio/capture-screenshot', { resolution, studioId });
+        return data.data;
+    }
+
     // --- OpenCloud operations ---
 
     async publishPlace(universeId: number, placeId: number, filePath: string, versionType?: string): Promise<unknown> {

@@ -61,6 +61,7 @@ export class BridgeServer implements vscode.Disposable {
         'POST /studio/move-rename-instance': (_, body) => this.handleMoveRenameInstance(body),
         'POST /studio/manage-tags': (_, body) => this.handleManageTags(body),
         'POST /studio/simulate-input': (_, body) => this.handleSimulateInput(body),
+        'POST /studio/capture-screenshot': (_, body) => this.handleCaptureScreenshot(body),
         'POST /opencloud/publish': (_, body) => this.handlePublishPlace(body),
         'POST /opencloud/datastore': (_, body) => this.handleDatastore(body),
         'POST /opencloud/message': (_, body) => this.handleSendMessage(body),
@@ -907,6 +908,109 @@ export class BridgeServer implements vscode.Disposable {
                 body.message as string
             );
             return { success: true };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: message };
+        }
+    }
+
+
+    private async handleCaptureScreenshot(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const platform = os.platform();
+        if (platform !== 'darwin') {
+            return { success: false, error: `Screenshot capture is currently only supported on macOS (detected: ${platform})` };
+        }
+
+        const timestamp = Date.now();
+        const filePath = path.join(os.tmpdir(), `lunaide_screenshot_${timestamp}.png`);
+
+        try {
+            // Bring Roblox Studio to the foreground so macOS can render it
+            await new Promise<void>((resolve) => {
+                exec('osascript -e \'tell application "Roblox Studio" to activate\'', () => {
+                    // Don't fail if activate fails — Studio might still be capturable
+                    setTimeout(resolve, 500); // Wait for macOS to render the window
+                });
+            });
+
+            // Find ALL Roblox Studio window IDs (sorted by on-screen first, then by area)
+            const windowIds = await new Promise<string[]>((resolve, reject) => {
+                const swiftCode = [
+                    'import CoreGraphics',
+                    'let windowList = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as! [[String: Any]]',
+                    'var candidates: [(id: Int, area: Int, onScreen: Bool)] = []',
+                    'for w in windowList {',
+                    '    let owner = w["kCGWindowOwnerName"] as? String ?? ""',
+                    '    let layer = w["kCGWindowLayer"] as? Int ?? -1',
+                    '    if owner.contains("Roblox") && layer == 0 {',
+                    '        let bounds = w["kCGWindowBounds"] as? [String: Any] ?? [:]',
+                    '        let width = bounds["Width"] as? Int ?? 0',
+                    '        let height = bounds["Height"] as? Int ?? 0',
+                    '        let area = width * height',
+                    '        let onScreen = w["kCGWindowIsOnscreen"] as? Bool ?? false',
+                    '        if area > 1000 {',
+                    '            candidates.append((w["kCGWindowNumber"] as? Int ?? 0, area, onScreen))',
+                    '        }',
+                    '    }',
+                    '}',
+                    'candidates.sort { ($0.onScreen ? 0 : 1, -$0.area) < ($1.onScreen ? 0 : 1, -$1.area) }',
+                    'print(candidates.map { String($0.id) }.joined(separator: "\\n"))',
+                ].join('\n');
+                exec(`swift -e '${swiftCode}'`, (error, stdout) => {
+                    if (error) {
+                        reject(new Error(`Could not find Roblox Studio window: ${error.message}`));
+                    } else {
+                        const ids = stdout.trim().split('\n').filter((id) => id.length > 0);
+                        if (ids.length === 0) {
+                            reject(new Error('Roblox Studio window not found. Is it open?'));
+                        } else {
+                            resolve(ids);
+                        }
+                    }
+                });
+            });
+
+            this.log(`Found ${windowIds.length} Roblox Studio windows: ${windowIds.join(', ')}`);
+
+            // Try each window ID until one succeeds (cross-Space windows will fail)
+            let captured = false;
+            for (const wid of windowIds) {
+                try {
+                    await new Promise<void>((resolve, reject) => {
+                        exec(`screencapture -l ${wid} -x -o "${filePath}"`, (error) => {
+                            if (error) reject(error);
+                            else resolve();
+                        });
+                    });
+                    if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
+                        this.log(`Captured window ID ${wid}`);
+                        captured = true;
+                        break;
+                    }
+                } catch {
+                    this.log(`Window ${wid} not capturable, trying next...`);
+                }
+            }
+
+            if (!captured) {
+                return { success: false, error: 'Could not capture Roblox Studio. Please switch to the Space/screen where Roblox Studio is visible and try again.' };
+            }
+
+            // Verify file was created
+            if (!fs.existsSync(filePath)) {
+                return { success: false, error: 'Screenshot file was not created' };
+            }
+
+            const stats = fs.statSync(filePath);
+            this.log(`Screenshot saved: ${filePath} (${stats.size} bytes)`);
+
+            return {
+                success: true,
+                data: {
+                    path: filePath,
+                    size: stats.size,
+                },
+            };
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             return { success: false, error: message };
