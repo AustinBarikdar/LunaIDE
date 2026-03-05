@@ -60,7 +60,6 @@ export class BridgeServer implements vscode.Disposable {
         'POST /studio/set-instance-properties': (_, body) => this.handleSetInstanceProperties(body),
         'POST /studio/move-rename-instance': (_, body) => this.handleMoveRenameInstance(body),
         'POST /studio/manage-tags': (_, body) => this.handleManageTags(body),
-        'POST /studio/simulate-input': (_, body) => this.handleSimulateInput(body),
         'POST /studio/capture-screenshot': (_, body) => this.handleCaptureScreenshot(body),
         'POST /opencloud/publish': (_, body) => this.handlePublishPlace(body),
         'POST /opencloud/datastore': (_, body) => this.handleDatastore(body),
@@ -820,30 +819,6 @@ export class BridgeServer implements vscode.Disposable {
             const message = err instanceof Error ? err.message : String(err);
             return { success: false, error: message };
         }
-    }
-
-    private async handleSimulateInput(body: Record<string, unknown>): Promise<BridgeResponse> {
-        let studioIds = body.studioId ? [body.studioId as string] : this.studioManager.getConnectedStudios().map(s => s.studioId);
-        if (studioIds.length === 0) {
-            return { success: false, error: 'No Studio instance connected' };
-        }
-
-        let lastErr = new Error('Unknown error');
-        for (const studioId of studioIds) {
-            try {
-                const result = await this.studioManager.sendCommand(studioId, 'simulate_input', {
-                    action: body.action,
-                    key: body.key,
-                    x: body.x,
-                    y: body.y,
-                });
-                return { success: true, data: result };
-            } catch (err) {
-                lastErr = err as Error;
-            }
-        }
-
-        return { success: false, error: lastErr.message };
     }
 
     // --- OpenCloud handlers ---

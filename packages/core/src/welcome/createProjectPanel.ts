@@ -178,6 +178,56 @@ export class CreateProjectPanel {
         Buffer.from(aftmanToml),
       );
 
+      // Write .gitignore
+      const gitignore =
+        'node_modules/\n' +
+        'dist/\n' +
+        'out/\n' +
+        '*.vsix\n' +
+        '.lunaide/\n' +
+        '.robloxide/\n' +
+        'LunaIDE-dist/\n' +
+        'RobloxIDE-dist/\n' +
+        '*.js.map\n' +
+        '*.d.ts.map\n' +
+        '\n' +
+        '# OS\n' +
+        '.DS_Store\n' +
+        'Thumbs.db\n' +
+        '\n' +
+        '# IDE\n' +
+        '.idea/\n' +
+        '*.swp\n' +
+        '*.swo\n' +
+        '\n' +
+        '# Environment\n' +
+        '.env\n' +
+        '.env.local\n' +
+        '\n' +
+        '# Logs\n' +
+        '*.log\n' +
+        'npm-debug.log*\n' +
+        '\n' +
+        '# Build artifacts\n' +
+        '*.tsbuildinfo\n' +
+        '\n' +
+        '# Roblox / Rojo generated files\n' +
+        'sourcemap.json\n' +
+        'default.project.json\n' +
+        '*.rbxl\n' +
+        '*.rbxlx\n' +
+        '*.rbxm\n' +
+        '*.rbxmx\n' +
+        '\n' +
+        '# LunaIDE snapshots & profiles\n' +
+        '.lunaide/\n' +
+        'places.json\n' +
+        'profile.json\n';
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.joinPath(projectUri, '.gitignore'),
+        Buffer.from(gitignore),
+      );
+
       // Write .lunaide/places.json
       const placesConfig: Record<string, { placeId?: number }> = {};
       placesConfig[placeName] = placeId ? { placeId } : {};

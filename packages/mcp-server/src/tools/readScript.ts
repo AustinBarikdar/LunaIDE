@@ -3,7 +3,12 @@ import { BridgeClient } from '../bridge/bridgeClient.js';
 export function readScriptTool(bridge: BridgeClient) {
     return {
         name: 'read_script',
-        description: 'Read a Luau script from the project. Returns the file content as text.',
+        description:
+            'Read a Luau script from the Roblox project. Returns the file content as text. ' +
+            'File types: .server.lua (Script, runs on server), .client.lua (LocalScript, runs on client), .lua (ModuleScript, shared). ' +
+            'Scripts live under src/ and map to Roblox services via Rojo: src/server → ServerScriptService, src/client → StarterPlayerScripts, ' +
+            'src/shared → ReplicatedStorage, src/gui → StarterGui. ' +
+            'Read the roblox://reference/luau-guide resource for Luau best practices, service APIs, and architecture patterns before writing code.',
         inputSchema: {
             type: 'object' as const,
             properties: {

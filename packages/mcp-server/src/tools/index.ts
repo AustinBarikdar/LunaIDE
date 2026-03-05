@@ -32,7 +32,7 @@ import { deleteInstanceTool } from './deleteInstance.js';
 import { setInstancePropertiesTool } from './setInstanceProperties.js';
 import { moveRenameInstanceTool } from './moveRenameInstance.js';
 import { manageTagsTool } from './manageTags.js';
-import { simulateInputTool } from './simulateInput.js';
+
 import { createUITool } from './createUI.js';
 import { captureScreenshotTool } from './captureScreenshot.js';
 
@@ -93,7 +93,7 @@ export function createTools(bridge: BridgeClient, lockManager: LockManager): Too
         setInstancePropertiesTool(bridge),
         moveRenameInstanceTool(bridge),
         manageTagsTool(bridge),
-        simulateInputTool(bridge),
+
         createUITool(bridge),
         captureScreenshotTool(bridge),
         // OpenCloud

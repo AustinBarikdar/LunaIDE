@@ -1,5 +1,6 @@
 import { BridgeClient } from '../bridge/bridgeClient.js';
 import { uiReferenceResource } from './uiReference.js';
+import { luauReferenceResource } from './luauReference.js';
 
 export interface ResourceDefinition {
     uri: string;
@@ -99,5 +100,6 @@ export function createResources(bridge: BridgeClient): ResourceDefinition[] {
         },
 
         uiReferenceResource(),
+        luauReferenceResource(),
     ];
 }
