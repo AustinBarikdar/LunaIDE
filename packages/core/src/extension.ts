@@ -18,6 +18,7 @@ import { SetupPanel } from './setup/setupPanel.js';
 import { AgentConnector, AGENT_IDS, AGENT_LABELS } from './mcp/agentConnector.js';
 import { PlacesTreeView } from './places/placesTreeView.js';
 import { ToolUpdateChecker } from './tools/toolUpdateChecker.js';
+import { IdeUpdateChecker } from './tools/ideUpdateChecker.js';
 
 // ── Built-in project profiles ────────────────────────────────────────────────
 export interface ProfileService {
@@ -628,6 +629,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const toolUpdateChecker = new ToolUpdateChecker(context);
   context.subscriptions.push(toolUpdateChecker);
   void toolUpdateChecker.checkForUpdates();
+
+  // Check for LunaIDE IDE updates
+  const ideUpdateChecker = new IdeUpdateChecker(context);
+  context.subscriptions.push(ideUpdateChecker);
+  void ideUpdateChecker.checkForUpdates();
 
   outputChannel.appendLine('LunaIDE activated.');
 }

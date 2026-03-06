@@ -40,12 +40,12 @@ jobs:
     - name: Zipping LunaIDE.app
       run: |
         cd ~/LunaIDE-dist
-        zip -r LunaIDE-macOS-arm64.zip LunaIDE.app
+        zip -r LunaIDE-darwin-arm64.zip LunaIDE.app
     - name: Upload macOS Artifact
       uses: actions/upload-artifact@v4
       with:
         name: macos-release-zip
-        path: ~/LunaIDE-dist/LunaIDE-macOS-arm64.zip
+        path: ~/LunaIDE-dist/LunaIDE-darwin-arm64.zip
 
   build-windows:
     runs-on: windows-latest
@@ -72,12 +72,12 @@ jobs:
     - name: Zipping LunaIDE
       run: |
         cd ~/LunaIDE-dist-win
-        7z a LunaIDE-Windows-x64.zip LunaIDE
+        7z a LunaIDE-win32-x64.zip LunaIDE
     - name: Upload Windows Artifact
       uses: actions/upload-artifact@v4
       with:
         name: windows-release-zip
-        path: ~/LunaIDE-dist-win/LunaIDE-Windows-x64.zip
+        path: ~/LunaIDE-dist-win/LunaIDE-win32-x64.zip
 
   publish-release:
     needs: [build-macos, build-windows]
@@ -104,7 +104,7 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: |
-            release/macos/LunaIDE-macOS-arm64.zip
-            release/windows/LunaIDE-Windows-x64.zip
+            release/macos/LunaIDE-darwin-arm64.zip
+            release/windows/LunaIDE-win32-x64.zip
           draft: true
           generate_release_notes: true

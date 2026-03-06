@@ -97,6 +97,14 @@
       {
         "command": "lunaide.checkForUpdates",
         "title": "LunaIDE: Check for Tool Updates"
+      },
+      {
+        "command": "lunaide.checkForIdeUpdates",
+        "title": "LunaIDE: Check for IDE Updates"
+      },
+      {
+        "command": "lunaide.applyIdeUpdate",
+        "title": "LunaIDE: Apply Downloaded IDE Update"
       }
     ],
     "configuration": {
