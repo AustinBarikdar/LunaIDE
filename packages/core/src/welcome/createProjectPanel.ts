@@ -181,7 +181,7 @@ export class CreateProjectPanel {
       // aftman.toml — resolve full semver versions
       const rojoVersion = getInstalledRojoVersion()
         ?? await getLatestGitHubRelease('rojo-rbx/rojo')
-        ?? '7.4.4';
+        ?? '7.7.0-rc.1';
       const luauLspVersion = getInstalledLuauLspVersion()
         ?? await getLatestGitHubRelease('JohnnyMorganz/luau-lsp')
         ?? '1.34.1';
@@ -230,7 +230,6 @@ export class CreateProjectPanel {
         '\n' +
         '# Roblox / Rojo generated files\n' +
         'sourcemap.json\n' +
-        'default.project.json\n' +
         '*.rbxl\n' +
         '*.rbxlx\n' +
         '*.rbxm\n' +
@@ -260,8 +259,9 @@ export class CreateProjectPanel {
 
       // Open the new project
       vscode.commands.executeCommand('vscode.openFolder', projectUri, false);
-    } catch (err: any) {
-      vscode.window.showErrorMessage(`Failed to create project: ${err.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(`Failed to create project: ${message}`);
     }
   }
 

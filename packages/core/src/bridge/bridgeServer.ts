@@ -891,6 +891,14 @@ export class BridgeServer implements vscode.Disposable {
 
 
     private async handleCaptureScreenshot(body: Record<string, unknown>): Promise<BridgeResponse> {
+        const enabled = vscode.workspace.getConfiguration('robloxIde').get<boolean>('enableScreenCapture', false);
+        if (!enabled) {
+            return {
+                success: false,
+                error: 'Screen capture is disabled. To allow AI agents to capture screenshots of Roblox Studio, enable it in LunaIDE Setup (lunaide.showSetup command) under "Screen Capture", or set robloxIde.enableScreenCapture to true in VS Code settings.',
+            };
+        }
+
         const platform = os.platform();
         if (platform !== 'darwin') {
             return { success: false, error: `Screenshot capture is currently only supported on macOS (detected: ${platform})` };

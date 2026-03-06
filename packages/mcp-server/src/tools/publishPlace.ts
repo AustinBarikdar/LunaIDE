@@ -16,7 +16,7 @@ export function publishPlaceTool(bridge: BridgeClient) {
         },
         handler: async (args: { universeId: number; placeId: number; filePath: string; versionType?: string }) => {
             try {
-                const result = await bridge.publishPlace(args.universeId, args.placeId, args.filePath, args.versionType as any);
+                const result = await bridge.publishPlace(args.universeId, args.placeId, args.filePath, args.versionType);
                 return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);

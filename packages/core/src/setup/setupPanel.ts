@@ -53,6 +53,9 @@ export class SetupPanel implements vscode.Disposable {
                 case 'installAftman':
                     vscode.env.openExternal(vscode.Uri.parse('https://github.com/LPGhatguy/aftman#installation'));
                     break;
+                case 'installRojoPlugin':
+                    await this._installRojoPlugin();
+                    break;
                 case 'enableHttp':
                     vscode.env.openExternal(vscode.Uri.parse('https://create.roblox.com/docs/cloud/open-cloud/usage-place-publishing#configure-api-access'));
                     break;
@@ -67,6 +70,9 @@ export class SetupPanel implements vscode.Disposable {
                     break;
                 case 'updateExtension':
                     await this._updateExtension(msg.extId);
+                    break;
+                case 'toggleScreenCapture':
+                    await this._toggleScreenCapture();
                     break;
                 case 'refresh':
                     this._refresh();
@@ -113,8 +119,9 @@ export class SetupPanel implements vscode.Disposable {
             vscode.window.showInformationMessage(
                 `LunaIDE MCP server configured for ${this._agentLabel(agentId)}. Restart the agent to pick it up.`
             );
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`Failed to write config: ${err.message}`);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            vscode.window.showErrorMessage(`Failed to write config: ${message}`);
         }
 
         this._refresh();
@@ -157,11 +164,21 @@ export class SetupPanel implements vscode.Disposable {
                 vscode.window.showInformationMessage(
                     `${ext.displayName} updated to v${latestVersion}. Reload LunaIDE to apply.`
                 );
-            } catch (err: any) {
-                vscode.window.showErrorMessage(`Failed to update ${ext.displayName}: ${err.message}`);
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`Failed to update ${ext.displayName}: ${message}`);
             }
         });
 
+        this._refresh();
+    }
+
+    // ── Screen capture consent ───────────────────────────────────────────────
+
+    private async _toggleScreenCapture(): Promise<void> {
+        const config = vscode.workspace.getConfiguration('robloxIde');
+        const current = config.get<boolean>('enableScreenCapture', false);
+        await config.update('enableScreenCapture', !current, vscode.ConfigurationTarget.Global);
         this._refresh();
     }
 
@@ -177,6 +194,8 @@ export class SetupPanel implements vscode.Disposable {
             Promise.resolve(this._gatherAgents()),
         ]);
 
+        const screenCaptureEnabled = vscode.workspace.getConfiguration('robloxIde').get<boolean>('enableScreenCapture', false);
+
         // Get installed versions synchronously; show "Checking..." for latest
         const extStatuses: ExtensionStatus[] = MANAGED_EXTENSIONS.map(ext => ({
             ext,
@@ -185,7 +204,7 @@ export class SetupPanel implements vscode.Disposable {
         }));
 
         if (this._disposed) return;
-        this._panel.webview.html = this._getHtml(items, agents, extStatuses);
+        this._panel.webview.html = this._getHtml(items, agents, extStatuses, screenCaptureEnabled);
 
         // Async-fetch latest versions, then re-render
         const latestVersions = await Promise.all(
@@ -199,7 +218,7 @@ export class SetupPanel implements vscode.Disposable {
         }));
 
         if (this._disposed) return;
-        this._panel.webview.html = this._getHtml(items, agents, updatedStatuses);
+        this._panel.webview.html = this._getHtml(items, agents, updatedStatuses, screenCaptureEnabled);
     }
 
     private _gatherAgents(): AgentItem[] {
@@ -282,8 +301,8 @@ export class SetupPanel implements vscode.Disposable {
             label: 'Rojo sync tool',
             status: rojoBin ? 'ok' : 'error',
             detail: rojoBin ? `Found via ${rojoSource}: ${rojoBin}` : 'Not found — run: aftman add rojo-rbx/rojo',
-            actionLabel: rojoBin ? undefined : 'Install Aftman',
-            actionCommand: rojoBin ? undefined : 'installAftman',
+            actionLabel: rojoBin ? 'Reinstall Plugin' : 'Install Aftman',
+            actionCommand: rojoBin ? 'installRojoPlugin' : 'installAftman',
         });
 
         // 3. Studio plugin
@@ -361,6 +380,16 @@ export class SetupPanel implements vscode.Disposable {
 
     // ── Install plugin ───────────────────────────────────────────────────────
 
+    private async _installRojoPlugin(): Promise<void> {
+        try {
+            execSync('rojo plugin install', { encoding: 'utf-8' });
+            vscode.window.showInformationMessage('Rojo Roblox Studio plugin installed successfully!');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            vscode.window.showErrorMessage(`Failed to install Rojo plugin: ${message}`);
+        }
+    }
+
     private async _installPlugin(): Promise<void> {
         const home = process.env.HOME ?? '';
         const pluginsDir = path.join(home, 'Documents', 'Roblox', 'Plugins');
@@ -387,8 +416,9 @@ export class SetupPanel implements vscode.Disposable {
             } else {
                 vscode.window.showErrorMessage('Bundled plugins not found. Please run prepare.sh to rebuild LunaIDE.');
             }
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`Plugin install failed: ${err.message}`);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            vscode.window.showErrorMessage(`Plugin install failed: ${message}`);
         }
 
         this._refresh();
@@ -413,14 +443,15 @@ export class SetupPanel implements vscode.Disposable {
             fs.mkdirSync(path.dirname(pluginsOut), { recursive: true });
             fs.copyFileSync(src, pluginsOut);
             vscode.window.showInformationMessage(`Plugin ${filename} installed to Studio Plugins!`);
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`Failed to import plugin: ${err.message}`);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            vscode.window.showErrorMessage(`Failed to import plugin: ${message}`);
         }
     }
 
     // ── HTML ─────────────────────────────────────────────────────────────────
 
-    private _getHtml(items: SetupItem[], agents: AgentItem[], extStatuses: ExtensionStatus[]): string {
+    private _getHtml(items: SetupItem[], agents: AgentItem[], extStatuses: ExtensionStatus[], screenCaptureEnabled: boolean): string {
         const requirementRows = items.map((item) => {
             const icon = item.status === 'ok'
                 ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ec9b0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
@@ -638,6 +669,30 @@ export class SetupPanel implements vscode.Disposable {
     cursor: pointer; text-decoration: underline; margin-left: auto;
   }
   .dismiss-link:hover { color: var(--vscode-foreground); }
+
+  /* ── Screen Capture ── */
+  .screen-capture-card {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 14px 16px; border-radius: 10px; margin-bottom: 32px;
+    background: var(--vscode-welcomePage-tileBackground, rgba(255,255,255,.03));
+    border: 1px solid var(--vscode-widget-border, rgba(255,255,255,.07));
+  }
+  .sc-enabled { border-color: rgba(78,201,176,.25); }
+  .sc-disabled { border-color: rgba(204,167,0,.25); }
+  .sc-icon {
+    flex-shrink: 0; display: flex; align-items: center;
+    padding-top: 2px; color: var(--vscode-descriptionForeground);
+  }
+  .sc-body { flex: 1; min-width: 0; }
+  .sc-title { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+  .sc-desc { font-size: 11.5px; color: var(--vscode-descriptionForeground); line-height: 1.5; }
+  .sc-warning {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 8px; font-size: 11px; color: #cca700;
+    background: rgba(204,167,0,.08); border: 1px solid rgba(204,167,0,.2);
+    border-radius: 6px; padding: 6px 10px; line-height: 1.4;
+  }
+  .sc-warning svg { flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -668,6 +723,30 @@ export class SetupPanel implements vscode.Disposable {
 
   <div class="section-label">Managed Extensions</div>
   <div class="agent-list">${extensionRows}</div>
+
+  <div class="section-label">Screen Capture</div>
+  <div class="screen-capture-card ${screenCaptureEnabled ? 'sc-enabled' : 'sc-disabled'}">
+    <div class="sc-icon">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+      </svg>
+    </div>
+    <div class="sc-body">
+      <div class="sc-title">AI Screen Capture</div>
+      <div class="sc-desc">
+        ${screenCaptureEnabled
+            ? 'Enabled — AI agents can capture screenshots of your Roblox Studio window.'
+            : 'Disabled — AI agents cannot take screenshots of your screen. Enable only if you want agents to see your Roblox Studio window.'}
+      </div>
+      ${!screenCaptureEnabled ? `<div class="sc-warning">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        When enabled, AI agents can capture and view your screen at any time.
+      </div>` : ''}
+    </div>
+    <button class="action-btn ${screenCaptureEnabled ? 'action-btn-secondary' : ''}" onclick="send('toggleScreenCapture')">
+      ${screenCaptureEnabled ? 'Disable' : 'Enable'}
+    </button>
+  </div>
 
   <div class="footer-row">
     <button class="footer-btn" onclick="send('refresh')">↻ Refresh</button>

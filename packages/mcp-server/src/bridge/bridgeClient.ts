@@ -1,4 +1,6 @@
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { getBridgePortFile } from '@roblox-ide/shared';
 
 interface BridgeResponse {
@@ -21,12 +23,7 @@ export class BridgeClient {
     }
 
     async connect(): Promise<void> {
-        const portFile = getBridgePortFile(this.workspacePath);
-        if (!fs.existsSync(portFile)) {
-            throw new Error(
-                `Bridge port file not found at ${portFile}. Is the LunaIDE extension running?`
-            );
-        }
+        const portFile = await this.findPortFile();
         const port = parseInt(fs.readFileSync(portFile, 'utf-8').trim(), 10);
         if (isNaN(port)) {
             throw new Error(`Invalid port in ${portFile}`);
@@ -38,6 +35,48 @@ export class BridgeClient {
         if (!resp.ok) {
             throw new Error('Bridge server health check failed');
         }
+    }
+
+    /**
+     * Find the bridge port file. First tries the computed hash for the current
+     * workspace, then falls back to any lunaide-bridge-*.port file in the OS
+     * temp dir (most recently modified wins). This handles the case where the
+     * workspace path used by the extension differs from the one passed to the
+     * MCP server (e.g. different cwd, symlink resolution, or a different project
+     * open in LunaIDE).
+     */
+    private async findPortFile(): Promise<string> {
+        const primary = getBridgePortFile(this.workspacePath);
+        if (fs.existsSync(primary)) {
+            return primary;
+        }
+
+        // Fallback: scan temp dir for any lunaide bridge port files
+        const tmpDir = os.tmpdir();
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(tmpDir, { withFileTypes: true });
+        } catch {
+            throw new Error(
+                `Bridge port file not found at ${primary}. Is the LunaIDE extension running?`
+            );
+        }
+
+        const portFiles = entries
+            .filter(e => e.isFile() && /^lunaide-bridge-[0-9a-f]+\.port$/.test(e.name))
+            .map(e => ({
+                filePath: path.join(tmpDir, e.name),
+                mtime: fs.statSync(path.join(tmpDir, e.name)).mtimeMs,
+            }))
+            .sort((a, b) => b.mtime - a.mtime); // most recently written first
+
+        if (portFiles.length === 0) {
+            throw new Error(
+                `Bridge port file not found at ${primary}. Is the LunaIDE extension running?`
+            );
+        }
+
+        return portFiles[0].filePath;
     }
 
     isConnected(): boolean {

@@ -23,6 +23,8 @@ export class ToolUpdateChecker implements vscode.Disposable {
   private availableUpdates = new Map<string, { tool: ManagedTool, installed: string, latest: string }>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private disposables: vscode.Disposable[] = [];
+  private isFirstCheck = true;
+
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.updateContext();
@@ -54,7 +56,9 @@ export class ToolUpdateChecker implements vscode.Disposable {
     const cacheKey = `lunaide.toolUpdate.${tool.id}.lastChecked`;
     const lastChecked = this.context.globalState.get<number>(cacheKey, 0);
 
-    if (!force && Date.now() - lastChecked < CACHE_TTL_MS) return;
+    // Bypass cache for the very first check after launch (isFirstCheck)
+    if (!force && !this.isFirstCheck && Date.now() - lastChecked < CACHE_TTL_MS) return;
+    this.isFirstCheck = false;
 
     try {
       const installed = this.getInstalledVersion(tool);
@@ -166,25 +170,141 @@ export class ToolUpdateChecker implements vscode.Disposable {
       });
   }
 
-  private runAftmanUpdate(tool: ManagedTool, version: string): void {
-    const cmd = 'aftman';
-    const args = ['add', '--global', `${tool.repo}@${version}`];
+  private async runAftmanUpdate(tool: ManagedTool, version: string): Promise<void> {
+    const addCmd = 'aftman';
+    const addArgs = ['add', '--global', `${tool.repo}@${version}`];
 
-    execFile(cmd, args, { timeout: 60000 }, (error, stdout, stderr) => {
-      if (error) {
+    execFile(addCmd, addArgs, { timeout: 60000 }, (addError) => {
+      if (addError) {
         vscode.window.showErrorMessage(
-          `Failed to update ${tool.displayName}: ${error.message}`
+          `Failed to add ${tool.displayName} v${version} to aftman: ${addError.message}`
         );
         return;
       }
 
-      this.hideStatusBarItem(tool.id);
-      vscode.window.showInformationMessage(
-        `${tool.displayName} updated to v${version}.`
-      );
+      // After adding, we MUST run 'aftman install' to actually download the binary.
+      execFile('aftman', ['install'], { timeout: 120000 }, async (installError) => {
+        if (installError) {
+          vscode.window.showErrorMessage(
+            `Failed to install ${tool.displayName} via aftman: ${installError.message}`
+          );
+          return;
+        }
 
-      // Reset cache so next check sees the new version
-      void this.context.globalState.update(`lunaide.toolUpdate.${tool.id}.lastChecked`, 0);
+        // Verify the binary exists. Aftman sometimes fails to download silently.
+        const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+        const binaryPath = path.join(home, '.aftman', 'tool-storage', tool.repo, version, tool.id);
+
+        if (!fs.existsSync(binaryPath)) {
+          // Manual fallback if Aftman failed to download
+          if (tool.id === 'rojo') {
+            const success = await this.manuallyInstallRojo(version);
+            if (!success) return;
+          } else {
+            vscode.window.showErrorMessage(`Aftman failed to download ${tool.displayName} v${version}. Please try manual installation.`);
+            return;
+          }
+        }
+
+        this.hideStatusBarItem(tool.id);
+
+        if (tool.id === 'rojo') {
+          // Delete existing plugin files before installing new ones
+          const pluginsDir = path.join(home, 'Documents', 'Roblox', 'Plugins');
+          ['Rojo.rbxm', 'Rojo.rbxmx'].forEach(file => {
+            const p = path.join(pluginsDir, file);
+            if (fs.existsSync(p)) {
+              try { fs.unlinkSync(p); } catch { /* ignore */ }
+            }
+          });
+
+          execFile('rojo', ['plugin', 'install'], { timeout: 30000 }, (pluginErr) => {
+            if (pluginErr) {
+              vscode.window.showWarningMessage(
+                `${tool.displayName} CLI updated to v${version}, but Studio plugin install failed: ${pluginErr.message}. You may need to run 'rojo plugin install' manually.`
+              );
+            } else {
+              vscode.window.showInformationMessage(
+                `${tool.displayName} updated to v${version} and Studio plugin installed successfully.`
+              );
+            }
+            void this.context.globalState.update(`lunaide.toolUpdate.${tool.id}.lastChecked`, 0);
+          });
+        } else {
+
+          vscode.window.showInformationMessage(`${tool.displayName} updated to v${version}.`);
+          void this.context.globalState.update(`lunaide.toolUpdate.${tool.id}.lastChecked`, 0);
+        }
+      });
+    });
+  }
+
+  private async manuallyInstallRojo(version: string): Promise<boolean> {
+    return vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `Downloading Rojo v${version}...`,
+      cancellable: false
+    }, async (progress) => {
+      const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+      const storageDir = path.join(home, '.aftman', 'tool-storage', 'rojo-rbx', 'rojo', version);
+      const tempDir = path.join(home, '.aftman', 'temp-download');
+
+      try {
+        // 1. Delete old/corrupt directory if it exists (as requested by user)
+        if (fs.existsSync(storageDir)) {
+          fs.rmSync(storageDir, { recursive: true, force: true });
+        }
+
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+        const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+        const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux';
+        const url = `https://github.com/rojo-rbx/rojo/releases/download/v${version}/rojo-${version}-${platform}-${arch}.zip`;
+        const zipPath = path.join(tempDir, 'rojo.zip');
+
+        // Simple download helper
+        await new Promise((resolve, reject) => {
+          const file = fs.createWriteStream(zipPath);
+          https.get(url, (response) => {
+            if (response.statusCode !== 200 && response.statusCode !== 302) {
+              reject(new Error(`Failed to download Rojo: ${response.statusCode}`));
+              return;
+            }
+            // Handle redirects
+            if (response.statusCode === 302 && response.headers.location) {
+              https.get(response.headers.location, (res2) => {
+                res2.pipe(file);
+                file.on('finish', () => { file.close(); resolve(true); });
+              }).on('error', reject);
+            } else {
+              response.pipe(file);
+              file.on('finish', () => { file.close(); resolve(true); });
+            }
+          }).on('error', reject);
+        });
+
+        // Use shell unzip to be simple
+        await new Promise((resolve, reject) => {
+          execFile('unzip', ['-o', zipPath, '-d', tempDir], (err) => {
+            if (err) reject(err); else resolve(true);
+          });
+        });
+
+        if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
+
+        const extractedRojo = path.join(tempDir, 'rojo');
+        if (fs.existsSync(extractedRojo)) {
+          fs.renameSync(extractedRojo, path.join(storageDir, 'rojo'));
+          fs.chmodSync(path.join(storageDir, 'rojo'), 0o755);
+        }
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Manual Rojo installation failed: ${message}`);
+        return false;
+      }
     });
   }
 
@@ -202,8 +322,15 @@ function readJsonResponse(res: import('http').IncomingMessage): Promise<string |
     res.on('end', () => {
       try {
         const json = JSON.parse(data);
-        const tag: string = json.tag_name ?? '';
-        resolve(tag.replace(/^v/, ''));
+        // If it's an array (from /releases), pick the first one
+        if (Array.isArray(json) && json.length > 0) {
+          const tag: string = json[0].tag_name ?? '';
+          resolve(tag.replace(/^v/, ''));
+        } else {
+          // It's a single release object (from /releases/latest)
+          const tag: string = json.tag_name ?? '';
+          resolve(tag.replace(/^v/, ''));
+        }
       } catch {
         resolve(undefined);
       }
@@ -214,9 +341,13 @@ function readJsonResponse(res: import('http').IncomingMessage): Promise<string |
 
 export function getLatestGitHubRelease(repo: string): Promise<string | undefined> {
   return new Promise((resolve) => {
+    // For Rojo, we want to capture pre-releases (e.g., 7.7.0-rc.1), so we fetch all releases.
+    // For others, latest is usually fine, but fetching /releases works for both to get the absolute newest tag.
+    const path = repo === 'rojo-rbx/rojo' ? `/repos/${repo}/releases` : `/repos/${repo}/releases/latest`;
+
     const options: https.RequestOptions = {
       hostname: 'api.github.com',
-      path: `/repos/${repo}/releases/latest`,
+      path,
       headers: { 'User-Agent': 'LunaIDE', Accept: 'application/vnd.github.v3+json' },
       timeout: 10000,
     };
@@ -268,7 +399,7 @@ export function getInstalledRojoVersion(): string | undefined {
 
 export function getInstalledLuauLspVersion(): string | undefined {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-  const storageDir = path.join(home, '.aftman', 'tool-storage', 'luau-lsp');
+  const storageDir = path.join(home, '.aftman', 'tool-storage', 'JohnnyMorganz', 'luau-lsp');
 
   let entries: string[];
   try {
@@ -290,14 +421,31 @@ function isAftmanInstalled(): boolean {
   return fs.existsSync(path.join(home, '.aftman'));
 }
 
-/** Compare two semver strings (ignores pre-release suffixes). Returns >0 if a > b. */
+/** Compare two semver strings including prerelease tags. Returns >0 if a > b. */
 function compareSemver(a: string, b: string): number {
-  const parse = (v: string) => v.replace(/-.*$/, '').split('.').map(Number);
+  const parse = (v: string) => {
+    const match = v.match(/^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/);
+    if (!match) return { major: 0, minor: 0, patch: 0, prerelease: '' };
+    return {
+      major: parseInt(match[1], 10),
+      minor: parseInt(match[2], 10),
+      patch: parseInt(match[3], 10),
+      prerelease: match[4] || ''
+    };
+  };
+
   const pa = parse(a);
   const pb = parse(b);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
+
+  if (pa.major !== pb.major) return pa.major - pb.major;
+  if (pa.minor !== pb.minor) return pa.minor - pb.minor;
+  if (pa.patch !== pb.patch) return pa.patch - pb.patch;
+
+  // Prerelease logic: a release *without* a prerelease tag is always > one *with* a prerelease tag.
+  if (!pa.prerelease && pb.prerelease) return 1;
+  if (pa.prerelease && !pb.prerelease) return -1;
+  if (pa.prerelease === pb.prerelease) return 0;
+
+  // If both have prerelease tags, compare them lexicographically (basic fallback)
+  return pa.prerelease.localeCompare(pb.prerelease);
 }

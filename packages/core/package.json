@@ -151,6 +151,11 @@
           "type": "number",
           "default": 100,
           "description": "Maximum number of session snapshots to keep."
+        },
+        "robloxIde.enableScreenCapture": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow AI agents to capture screenshots of Roblox Studio. When enabled, agents can see your screen."
         }
       }
     },

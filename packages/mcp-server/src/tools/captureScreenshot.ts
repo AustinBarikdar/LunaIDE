@@ -12,6 +12,10 @@ export function captureScreenshotTool(bridge: BridgeClient) {
         inputSchema: {
             type: 'object' as const,
             properties: {
+                resolution: {
+                    type: 'number',
+                    description: 'Optional scale factor for the screenshot (e.g. 1 for full resolution, 0.5 for half). Default: 1.',
+                },
                 studioId: {
                     type: 'string',
                     description: 'Optional Studio instance ID to target.',
@@ -19,10 +23,11 @@ export function captureScreenshotTool(bridge: BridgeClient) {
             },
         },
         handler: async (args: Record<string, unknown>) => {
+            const resolution = args.resolution as number | undefined;
             const studioId = args.studioId as string | undefined;
 
             try {
-                const result = await bridge.captureScreenshot(undefined, studioId) as { path: string; size?: number };
+                const result = await bridge.captureScreenshot(resolution, studioId) as { path: string; size?: number };
 
                 if (!result || !result.path) {
                     return {
