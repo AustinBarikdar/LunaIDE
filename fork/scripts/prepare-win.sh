@@ -43,6 +43,17 @@ APP_DIR="$OUT_DIR/LunaIDE"
 echo "Renaming executable..."
 mv "$APP_DIR/VSCodium.exe" "$APP_DIR/LunaIDE.exe"
 
+if [ -f "$APP_DIR/bin/codium" ]; then
+    mv "$APP_DIR/bin/codium" "$APP_DIR/bin/lunaide"
+    sed -i.bak 's/VSCodium\.exe/LunaIDE\.exe/g' "$APP_DIR/bin/lunaide"
+    rm -f "$APP_DIR/bin/lunaide.bak"
+fi
+if [ -f "$APP_DIR/bin/codium.cmd" ]; then
+    mv "$APP_DIR/bin/codium.cmd" "$APP_DIR/bin/lunaide.cmd"
+    sed -i.bak 's/VSCodium\.exe/LunaIDE\.exe/g' "$APP_DIR/bin/lunaide.cmd"
+    rm -f "$APP_DIR/bin/lunaide.cmd.bak"
+fi
+
 # Step 4: Patch product.json
 echo "Patching product.json..."
 # Windows portable uses resources/app/product.json
@@ -192,6 +203,10 @@ MCP_EXT_DIR="$EXT_DIR/roblox-ide.roblox-ide-mcp-0.1.0"
 
 mkdir -p "$CORE_EXT_DIR"
 mkdir -p "$MCP_EXT_DIR"
+
+# Build the Studio plugin
+echo "Building LunaIDE Studio plugin..."
+rojo build "$ROOT_DIR/packages/studio-plugin/default.project.json" -o "$ROOT_DIR/packages/core/LunaIDE.rbxmx" || true
 
 cp -r "$ROOT_DIR/packages/core/dist" "$CORE_EXT_DIR/"
 cp "$ROOT_DIR/packages/core/package.json" "$CORE_EXT_DIR/"

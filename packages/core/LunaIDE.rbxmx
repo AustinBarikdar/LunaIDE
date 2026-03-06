@@ -1,0 +1,1270 @@
+<roblox version="4">
+  <Item class="Script" referent="0">
+    <Properties>
+      <string name="Name">LunaIDE Plugin</string>
+      <token name="RunContext">0</token>
+      <string name="Source"><![CDATA[--[[
+  LunaIDE Studio Plugin — Main entry point.
+  
+  This plugin connects to the LunaIDE extension running in VS Code/IDE.
+  It polls for commands, captures output, and sends instance data.
+  
+  Architecture:
+    IDE runs HTTP server on port 21026
+    <- Studio plugin POSTs output log data
+    <- Studio plugin POSTs instance tree
+    -> Studio plugin GETs pending commands
+    <- Studio plugin POSTs command results
+]]
+
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local InsertService = game:GetService("InsertService")
+
+-- Modules
+local HttpPoller = require(script.HttpPoller)
+local OutputCapture = require(script.OutputCapture)
+local PlaytestController = require(script.PlaytestController)
+local TestInjector = require(script.TestInjector)
+local InstanceSerializer = require(script.InstanceSerializer)
+
+-- Config
+local IDE_PORT = 21026
+local BASE_URL = "http://127.0.0.1:" .. tostring(IDE_PORT)
+local STUDIO_ID = HttpService:GenerateGUID(false)
+local PLUGIN_VERSION = "0.1.0"
+local OUTPUT_FLUSH_INTERVAL = 1.0 -- seconds
+local INSTANCE_SYNC_INTERVAL = 10.0 -- seconds
+
+-- State
+local connected = false
+
+-- Initialize components
+local poller = HttpPoller.new(BASE_URL, STUDIO_ID)
+local outputCapture = OutputCapture.new(BASE_URL, STUDIO_ID)
+local playtestController = PlaytestController.new(plugin)
+local testInjector = TestInjector.new()
+
+-- Register command handlers
+poller:registerHandler("start_playtest", function(payload)
+	return playtestController:startPlaytest(payload)
+end)
+
+poller:registerHandler("stop_playtest", function(payload)
+	return playtestController:stopPlaytest()
+end)
+
+poller:registerHandler("inject_script", function(payload)
+	return testInjector:inject(payload)
+end)
+
+poller:registerHandler("is_running", function(_payload)
+	return true, { isRunning = RunService:IsRunning() }
+end)
+
+poller:registerHandler("get_instances", function(payload)
+	local tree = InstanceSerializer.serializeGame()
+	return true, tree
+end)
+
+poller:registerHandler("get_output", function(payload)
+	-- Force a flush and return success
+	outputCapture:flush()
+	return true, { flushed = true }
+end)
+
+poller:registerHandler("run_code", function(payload)
+	local command = payload and payload.command
+	if not command then
+		return false, "Missing 'command' in payload"
+	end
+
+	-- Capture print output by temporarily overriding print
+	local outputLines = {}
+	local originalPrint = print
+	local originalWarn = warn
+	print = function(...)
+		local args = table.pack(...)
+		local parts = {}
+		for i = 1, args.n do
+			table.insert(parts, tostring(args[i]))
+		end
+		local line = table.concat(parts, "\t")
+		table.insert(outputLines, line)
+		originalPrint(...)
+	end
+	warn = function(...)
+		local args = table.pack(...)
+		local parts = {}
+		for i = 1, args.n do
+			table.insert(parts, tostring(args[i]))
+		end
+		local line = table.concat(parts, "\t")
+		table.insert(outputLines, "[warn] " .. line)
+		originalWarn(...)
+	end
+
+	local fn, loadErr = loadstring(command)
+	if not fn then
+		print = originalPrint
+		warn = originalWarn
+		return false, "Syntax error: " .. tostring(loadErr)
+	end
+
+	local ok, runErr = pcall(fn)
+	print = originalPrint
+	warn = originalWarn
+
+	if not ok then
+		return false, "Runtime error: " .. tostring(runErr)
+	end
+
+	return true, {
+		output = table.concat(outputLines, "\n"),
+	}
+end)
+
+poller:registerHandler("get_studio_mode", function(_payload)
+	local isRunning = RunService:IsRunning()
+	if not isRunning then
+		return true, { mode = "stop" }
+	end
+
+	-- Check if it's run mode (server only) vs play mode (client+server)
+	local isRunMode = false
+	pcall(function()
+		isRunMode = RunService:IsRunMode()
+	end)
+
+	if isRunMode then
+		return true, { mode = "run_server" }
+	else
+		return true, { mode = "start_play" }
+	end
+end)
+
+poller:registerHandler("insert_model", function(payload)
+	local query = payload and payload.query
+	if not query then
+		return false, "Missing 'query' in payload"
+	end
+
+	local ok, results = pcall(function()
+		return InsertService:GetFreeModels(query, 0)
+	end)
+	if not ok then
+		return false, "Failed to search models: " .. tostring(results)
+	end
+
+	-- GetFreeModels returns { [1] = { CurrentStartIndex, TotalCount, Results = { ... } } }
+	if not results or not results[1] or not results[1].Results or #results[1].Results == 0 then
+		return false, "No models found for query: " .. tostring(query)
+	end
+
+	local assetId = results[1].Results[1].AssetId
+
+	-- Use game:GetObjects instead of deprecated InsertService:LoadAsset
+	local loadOk, objects = pcall(function()
+		return game:GetObjects("rbxassetid://" .. tostring(assetId))
+	end)
+	if not loadOk or not objects or #objects == 0 then
+		return false, "Failed to load asset " .. tostring(assetId) .. ": " .. tostring(objects)
+	end
+
+	-- Title-case helper
+	local function toTitleCase(str: string): string
+		return string.gsub(str, "(%a)([%w]*)", function(first, rest)
+			return string.upper(first) .. string.lower(rest)
+		end)
+	end
+
+	-- Avoid duplicate names in Workspace
+	local function getUniqueName(name: string): string
+		if not game.Workspace:FindFirstChild(name) then
+			return name
+		end
+		local i = 2
+		while game.Workspace:FindFirstChild(name .. " " .. tostring(i)) do
+			i = i + 1
+		end
+		return name .. " " .. tostring(i)
+	end
+
+	-- Collapse multiple objects into a container (matching official plugin pattern)
+	local function collapseObjectsIntoContainer(objs: { Instance }): Instance
+		if #objs == 1 then
+			return objs[1]
+		end
+		-- Check if any object is a Model or BasePart
+		local hasModel = false
+		for _, obj in ipairs(objs) do
+			if obj:IsA("Model") or obj:IsA("BasePart") then
+				hasModel = true
+				break
+			end
+		end
+		local container: Instance
+		if hasModel then
+			container = Instance.new("Model")
+		else
+			container = Instance.new("Folder")
+		end
+		for _, obj in ipairs(objs) do
+			obj.Parent = container
+		end
+		return container
+	end
+
+	local result = collapseObjectsIntoContainer(objects)
+	local insertedName = toTitleCase(getUniqueName(result.Name or query))
+	result.Name = insertedName
+
+	-- Position near camera if it's a Model with a PrimaryPart
+	pcall(function()
+		if result:IsA("Model") then
+			local camera = game.Workspace.CurrentCamera
+			if camera and (result :: any).PrimaryPart then
+				local cf = camera.CFrame;
+				(result :: any):PivotTo(cf * CFrame.new(0, 0, -20))
+			end
+		end
+	end)
+
+	result.Parent = game.Workspace
+
+	return true, { name = insertedName, assetId = assetId }
+end)
+
+-- Resolve a dot-separated path (e.g. "game.Workspace.SpawnLocation") to an Instance
+local function resolveInstancePath(pathStr: string): Instance?
+	local parts = string.split(pathStr, ".")
+	local current: Instance = game
+
+	for i, part in ipairs(parts) do
+		if part == "game" then
+			continue
+		end
+		local child = current:FindFirstChild(part)
+		if not child then
+			return nil
+		end
+		current = child
+	end
+
+	return current
+end
+
+poller:registerHandler("get_children", function(payload)
+	local instancePath = payload and payload.path or "game"
+	local depth = payload and payload.depth or 1
+	
+	local instance = resolveInstancePath(instancePath)
+	if not instance then
+		return false, "Instance not found: " .. tostring(instancePath)
+	end
+
+	local function serializeChildren(inst: Instance, currentDepth: number): any
+		local children = {}
+		for _, child in ipairs(inst:GetChildren()) do
+			local entry: any = {
+				name = child.Name,
+				className = child.ClassName,
+				childCount = #child:GetChildren(),
+			}
+			-- Recurse if depth allows
+			if currentDepth < depth then
+				entry.children = serializeChildren(child, currentDepth + 1)
+			end
+			table.insert(children, entry)
+		end
+		return children
+	end
+
+	return true, {
+		path = instancePath,
+		name = instance.Name,
+		className = instance.ClassName,
+		children = serializeChildren(instance, 1),
+	}
+end)
+
+poller:registerHandler("get_instance_properties", function(payload)
+	local instancePath = payload and payload.path
+	if not instancePath then
+		return false, "Missing 'path' in payload"
+	end
+
+	local instance = resolveInstancePath(instancePath)
+	if not instance then
+		return false, "Instance not found: " .. tostring(instancePath)
+	end
+
+	-- Gather properties
+	local properties = {}
+
+	-- Common properties
+	pcall(function() properties.Name = instance.Name end)
+	pcall(function() properties.ClassName = instance.ClassName end)
+	pcall(function() properties.Parent = if instance.Parent then instance.Parent:GetFullName() else nil end)
+	pcall(function() properties.Archivable = instance.Archivable end)
+
+	-- BasePart properties
+	pcall(function()
+		if instance:IsA("BasePart") then
+			local pos = (instance :: any).Position
+			properties.Position = { X = pos.X, Y = pos.Y, Z = pos.Z }
+			local size = (instance :: any).Size
+			properties.Size = { X = size.X, Y = size.Y, Z = size.Z }
+			properties.Anchored = (instance :: any).Anchored
+			properties.CanCollide = (instance :: any).CanCollide
+			properties.Transparency = (instance :: any).Transparency
+			properties.Material = tostring((instance :: any).Material)
+			local color = (instance :: any).Color
+			properties.Color = { R = color.R, G = color.G, B = color.B }
+			properties.CFrame = tostring((instance :: any).CFrame)
+		end
+	end)
+
+	-- Model
+	pcall(function()
+		if instance:IsA("Model") then
+			local prim = (instance :: any).PrimaryPart
+			properties.PrimaryPart = if prim then prim.Name else nil
+		end
+	end)
+
+	-- Script properties
+	pcall(function()
+		if instance:IsA("BaseScript") then
+			properties.Disabled = (instance :: any).Disabled
+			properties.RunContext = tostring((instance :: any).RunContext)
+			properties.Source = (instance :: any).Source
+		end
+	end)
+
+	-- GuiObject
+	pcall(function()
+		if instance:IsA("GuiObject") then
+			properties.Visible = (instance :: any).Visible
+			local pos = (instance :: any).Position
+			properties.Position = tostring(pos)
+			local size = (instance :: any).Size
+			properties.Size = tostring(size)
+			properties.ZIndex = (instance :: any).ZIndex
+		end
+	end)
+
+	-- Value objects
+	pcall(function()
+		if instance:IsA("ValueBase") then
+			properties.Value = tostring((instance :: any).Value)
+		end
+	end)
+
+	-- Attributes
+	local attributes = {}
+	pcall(function()
+		attributes = instance:GetAttributes()
+	end)
+
+	-- Tags
+	local tags = {}
+	pcall(function()
+		tags = instance:GetTags()
+	end)
+
+	return true, {
+		path = instancePath,
+		fullName = instance:GetFullName(),
+		name = instance.Name,
+		className = instance.ClassName,
+		properties = properties,
+		attributes = attributes,
+		tags = tags,
+		childCount = #instance:GetChildren(),
+	}
+end)
+
+local Selection = game:GetService("Selection")
+local CollectionService = game:GetService("CollectionService")
+local ChangeHistoryService = game:GetService("ChangeHistoryService")
+
+poller:registerHandler("get_selection", function(_payload)
+	local selected = Selection:Get()
+	local results = {}
+	for _, inst in ipairs(selected) do
+		table.insert(results, {
+			name = inst.Name,
+			className = inst.ClassName,
+			path = inst:GetFullName(),
+		})
+	end
+	return true, { selection = results }
+end)
+
+poller:registerHandler("set_selection", function(payload)
+	local paths = payload and payload.paths
+	if not paths then
+		return false, "Missing 'paths' in payload"
+	end
+
+	local instances = {}
+	for _, pathStr in ipairs(paths) do
+		local inst = resolveInstancePath(pathStr)
+		if inst then
+			table.insert(instances, inst)
+		end
+	end
+
+	Selection:Set(instances)
+	return true, { selected = #instances }
+end)
+
+poller:registerHandler("create_instance", function(payload)
+	local className = payload and payload.className
+	local parentPath = payload and payload.parentPath
+	if not className or not parentPath then
+		return false, "Missing 'className' or 'parentPath' in payload"
+	end
+
+	local parent = resolveInstancePath(parentPath)
+	if not parent then
+		return false, "Parent not found: " .. tostring(parentPath)
+	end
+
+	local ok, inst = pcall(function()
+		local newInst = Instance.new(className)
+		newInst.Name = payload.name or className
+
+		-- Set initial properties with type coercion
+		if payload.properties then
+			for propName, propValue in pairs(payload.properties) do
+				pcall(function()
+					if type(propValue) == "table" then
+						if propValue.X ~= nil and propValue.Y ~= nil and propValue.Z ~= nil then
+							(newInst :: any)[propName] = Vector3.new(propValue.X, propValue.Y, propValue.Z)
+						elseif propValue.R ~= nil and propValue.G ~= nil and propValue.B ~= nil then
+							(newInst :: any)[propName] = Color3.new(propValue.R, propValue.G, propValue.B)
+						elseif propValue.XScale ~= nil and propValue.XOffset ~= nil and propValue.YScale ~= nil and propValue.YOffset ~= nil then
+							(newInst :: any)[propName] = UDim2.new(propValue.XScale, propValue.XOffset, propValue.YScale, propValue.YOffset)
+						elseif propValue.X ~= nil and propValue.Y ~= nil then
+							(newInst :: any)[propName] = Vector2.new(propValue.X, propValue.Y)
+						end
+					else
+						(newInst :: any)[propName] = propValue
+					end
+				end)
+			end
+		end
+
+		newInst.Parent = parent
+		return newInst
+	end)
+
+	if not ok then
+		return false, "Failed to create instance: " .. tostring(inst)
+	end
+
+	pcall(function()
+		ChangeHistoryService:SetWaypoint("LunaIDE: Create " .. className)
+	end)
+
+	return true, {
+		name = inst.Name,
+		className = inst.ClassName,
+		path = inst:GetFullName(),
+	}
+end)
+
+poller:registerHandler("delete_instance", function(payload)
+	local pathStr = payload and payload.path
+	if not pathStr then
+		return false, "Missing 'path' in payload"
+	end
+
+	local inst = resolveInstancePath(pathStr)
+	if not inst then
+		return false, "Instance not found: " .. tostring(pathStr)
+	end
+
+	-- Guard against destroying top-level services
+	if inst.Parent == game then
+		return false, "Cannot destroy top-level service: " .. inst.Name
+	end
+
+	local name = inst.Name
+	local ok, err = pcall(function()
+		inst:Destroy()
+	end)
+
+	if not ok then
+		return false, "Failed to destroy instance: " .. tostring(err)
+	end
+
+	pcall(function()
+		ChangeHistoryService:SetWaypoint("LunaIDE: Delete " .. name)
+	end)
+
+	return true, { deleted = name }
+end)
+
+poller:registerHandler("set_instance_properties", function(payload)
+	local pathStr = payload and payload.path
+	local properties = payload and payload.properties
+	if not pathStr or not properties then
+		return false, "Missing 'path' or 'properties' in payload"
+	end
+
+	local inst = resolveInstancePath(pathStr)
+	if not inst then
+		return false, "Instance not found: " .. tostring(pathStr)
+	end
+
+	local results = {}
+	for propName, propValue in pairs(properties) do
+		local propOk, propErr = pcall(function()
+			if type(propValue) == "table" then
+				if propValue.X ~= nil and propValue.Y ~= nil and propValue.Z ~= nil then
+					(inst :: any)[propName] = Vector3.new(propValue.X, propValue.Y, propValue.Z)
+				elseif propValue.R ~= nil and propValue.G ~= nil and propValue.B ~= nil then
+					(inst :: any)[propName] = Color3.new(propValue.R, propValue.G, propValue.B)
+				elseif propValue.XScale ~= nil and propValue.XOffset ~= nil and propValue.YScale ~= nil and propValue.YOffset ~= nil then
+					(inst :: any)[propName] = UDim2.new(propValue.XScale, propValue.XOffset, propValue.YScale, propValue.YOffset)
+				elseif propValue.X ~= nil and propValue.Y ~= nil then
+					(inst :: any)[propName] = Vector2.new(propValue.X, propValue.Y)
+				end
+			else
+				(inst :: any)[propName] = propValue
+			end
+		end)
+		if propOk then
+			results[propName] = "ok"
+		else
+			results[propName] = "error: " .. tostring(propErr)
+		end
+	end
+
+	pcall(function()
+		ChangeHistoryService:SetWaypoint("LunaIDE: Set properties on " .. inst.Name)
+	end)
+
+	return true, { path = pathStr, results = results }
+end)
+
+poller:registerHandler("move_rename_instance", function(payload)
+	local pathStr = payload and payload.path
+	if not pathStr then
+		return false, "Missing 'path' in payload"
+	end
+
+	local inst = resolveInstancePath(pathStr)
+	if not inst then
+		return false, "Instance not found: " .. tostring(pathStr)
+	end
+
+	local newName = payload.newName
+	local newParent = payload.newParent
+
+	if not newName and not newParent then
+		return false, "Must provide 'newName' or 'newParent' (or both)"
+	end
+
+	if newName then
+		inst.Name = newName
+	end
+
+	if newParent then
+		local parent = resolveInstancePath(newParent)
+		if not parent then
+			return false, "New parent not found: " .. tostring(newParent)
+		end
+		inst.Parent = parent
+	end
+
+	pcall(function()
+		ChangeHistoryService:SetWaypoint("LunaIDE: Move/rename " .. inst.Name)
+	end)
+
+	return true, {
+		name = inst.Name,
+		path = inst:GetFullName(),
+	}
+end)
+
+poller:registerHandler("manage_tags", function(payload)
+	local action = payload and payload.action
+	local tag = payload and payload.tag
+	if not action or not tag then
+		return false, "Missing 'action' or 'tag' in payload"
+	end
+
+	if action == "add" then
+		local pathStr = payload.path
+		if not pathStr then
+			return false, "Missing 'path' for add action"
+		end
+		local inst = resolveInstancePath(pathStr)
+		if not inst then
+			return false, "Instance not found: " .. tostring(pathStr)
+		end
+		CollectionService:AddTag(inst, tag)
+		pcall(function()
+			ChangeHistoryService:SetWaypoint("LunaIDE: Add tag '" .. tag .. "'")
+		end)
+		return true, { action = "add", tag = tag, path = pathStr }
+
+	elseif action == "remove" then
+		local pathStr = payload.path
+		if not pathStr then
+			return false, "Missing 'path' for remove action"
+		end
+		local inst = resolveInstancePath(pathStr)
+		if not inst then
+			return false, "Instance not found: " .. tostring(pathStr)
+		end
+		CollectionService:RemoveTag(inst, tag)
+		pcall(function()
+			ChangeHistoryService:SetWaypoint("LunaIDE: Remove tag '" .. tag .. "'")
+		end)
+		return true, { action = "remove", tag = tag, path = pathStr }
+
+	elseif action == "get_tagged" then
+		local tagged = CollectionService:GetTagged(tag)
+		local results = {}
+		for _, inst in ipairs(tagged) do
+			table.insert(results, {
+				name = inst.Name,
+				className = inst.ClassName,
+				path = inst:GetFullName(),
+			})
+		end
+		return true, { tag = tag, instances = results }
+
+	else
+		return false, "Invalid action: " .. tostring(action) .. ". Must be 'add', 'remove', or 'get_tagged'."
+	end
+end)
+
+-- Handshake with IDE
+local function performHandshake(): boolean
+	local handshakeData = HttpService:JSONEncode({
+		studioId = STUDIO_ID,
+		version = PLUGIN_VERSION,
+		placeId = game.PlaceId,
+		placeName = game.Name or "Unknown",
+	})
+
+	local success, err = pcall(function()
+		HttpService:PostAsync(
+			BASE_URL .. "/studio/handshake",
+			handshakeData,
+			Enum.HttpContentType.ApplicationJson,
+			false
+		)
+	end)
+
+	if success then
+		print("[LunaIDE] Connected to IDE on port " .. tostring(IDE_PORT))
+		return true
+	else
+		-- Silently fail — IDE may not be running
+		return false
+	end
+end
+
+-- Periodic output flushing
+local function startOutputFlushing()
+	task.spawn(function()
+		while connected do
+			outputCapture:flush()
+			task.wait(OUTPUT_FLUSH_INTERVAL)
+		end
+	end)
+end
+
+-- Periodic instance tree sync
+local function startInstanceSync()
+	task.spawn(function()
+		while connected do
+			pcall(function()
+				local tree = InstanceSerializer.serializeGame()
+				local payload = HttpService:JSONEncode({
+					studioId = STUDIO_ID,
+					root = tree,
+				})
+				HttpService:PostAsync(
+					BASE_URL .. "/studio/instances",
+					payload,
+					Enum.HttpContentType.ApplicationJson,
+					false
+				)
+			end)
+			task.wait(INSTANCE_SYNC_INTERVAL)
+		end
+	end)
+end
+
+-- Toolbar button
+local toolbar = plugin:CreateToolbar("LunaIDE")
+local toggleButton = toolbar:CreateButton(
+	"LunaIDE",
+	"Toggle LunaIDE connection",
+	"rbxassetid://6022668888" -- chain-link icon
+)
+toggleButton.ClickableWhenViewportHidden = true
+
+local function setButtonState(isConnected: boolean)
+	toggleButton:SetActive(isConnected)
+end
+
+toggleButton.Click:Connect(function()
+	if connected then
+		connected = false
+		outputCapture:stop()
+		poller:stop()
+		setButtonState(false)
+		print("[LunaIDE] Disconnected.")
+	else
+		connected = performHandshake()
+		if connected then
+			outputCapture:start()
+			poller:start()
+			startOutputFlushing()
+			startInstanceSync()
+			setButtonState(true)
+		else
+			print("[LunaIDE] Could not connect to LunaIDE — is the IDE open?")
+		end
+	end
+end)
+
+-- Startup
+local function startup()
+	-- Try to connect to IDE
+	connected = performHandshake()
+
+	if not connected then
+		-- Retry handshake every 5 seconds
+		task.spawn(function()
+			while not connected do
+				task.wait(5)
+				connected = performHandshake()
+			end
+
+			if connected then
+				outputCapture:start()
+				poller:start()
+				startOutputFlushing()
+				startInstanceSync()
+				setButtonState(true)
+			end
+		end)
+		return
+	end
+
+	-- Start components
+	outputCapture:start()
+	poller:start()
+	startOutputFlushing()
+	startInstanceSync()
+	setButtonState(true)
+end
+
+-- Cleanup on plugin unload
+plugin.Unloading:Connect(function()
+	connected = false
+	outputCapture:stop()
+	poller:stop()
+	testInjector:cleanup()
+	print("[LunaIDE] Plugin unloaded.")
+end)
+
+-- Clean up injected test scripts when playtest stops
+local wasRunning = false
+RunService.Heartbeat:Connect(function()
+	local isRunning = RunService:IsRunning()
+	if wasRunning and not isRunning then
+		testInjector:cleanup()
+	end
+	wasRunning = isRunning
+end)
+
+startup()
+]]></string>
+    </Properties>
+    <Item class="ModuleScript" referent="1">
+      <Properties>
+        <string name="Name">HttpPoller</string>
+        <string name="Source"><![CDATA[--[[
+  HttpPoller — Polls the IDE server for pending commands every 0.5s
+  and dispatches them to the appropriate handlers.
+]]
+
+local HttpService = game:GetService("HttpService")
+
+local HttpPoller = {}
+HttpPoller.__index = HttpPoller
+
+function HttpPoller.new(baseUrl: string, studioId: string)
+	local self = setmetatable({}, HttpPoller)
+	self._baseUrl = baseUrl
+	self._studioId = studioId
+	self._handlers = {} :: { [string]: (payload: any) -> (boolean, any?) }
+	self._running = false
+	self._pollInterval = 0.1
+	return self
+end
+
+function HttpPoller:registerHandler(commandType: string, handler: (payload: any) -> (boolean, any?))
+	self._handlers[commandType] = handler
+end
+
+function HttpPoller:start()
+	self._running = true
+
+	task.spawn(function()
+		while self._running do
+			local success, err = pcall(function()
+				self:_poll()
+			end)
+
+			if not success then
+				warn("[LunaIDE] Poll error: " .. tostring(err))
+			end
+
+			task.wait(self._pollInterval)
+		end
+	end)
+end
+
+function HttpPoller:stop()
+	self._running = false
+end
+
+function HttpPoller:_poll()
+	-- GET pending commands from the IDE
+	local response = HttpService:GetAsync(
+		self._baseUrl .. "/studio/commands?studioId=" .. self._studioId,
+		false
+	)
+
+	local data = HttpService:JSONDecode(response)
+	if not data or not data.commands then
+		return
+	end
+
+	-- Process each command
+	for _, command in ipairs(data.commands) do
+		self:_processCommand(command)
+	end
+end
+
+function HttpPoller:_processCommand(command: { id: string, type: string, payload: any })
+	local handler = self._handlers[command.type]
+	local success, result
+
+	if handler then
+		local pcallOk, handlerOk, handlerData = pcall(handler, command.payload)
+		if not pcallOk then
+			-- Runtime error: pcall caught a throw, error message is in handlerOk
+			success = false
+			result = handlerOk
+		else
+			-- Handler returned normally: (boolean, data?)
+			success = handlerOk
+			result = handlerData
+		end
+	else
+		success = false
+		result = "Unknown command type: " .. command.type
+	end
+
+	-- POST result back to IDE
+	local resultPayload = HttpService:JSONEncode({
+		commandId = command.id,
+		success = success,
+		data = if success then result else nil,
+		error = if not success then tostring(result) else nil,
+	})
+
+	pcall(function()
+		HttpService:PostAsync(
+			self._baseUrl .. "/studio/results",
+			resultPayload,
+			Enum.HttpContentType.ApplicationJson,
+			false
+		)
+	end)
+end
+
+return HttpPoller
+]]></string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="2">
+      <Properties>
+        <string name="Name">InstanceSerializer</string>
+        <string name="Source"><![CDATA[--[[
+  InstanceSerializer — Serialize the DataModel tree to JSON
+  for sending to the IDE server.
+]]
+
+local InstanceSerializer = {}
+
+local MAX_DEPTH = 10
+
+function InstanceSerializer.serialize(instance: Instance, depth: number?): any
+	local currentDepth = depth or 0
+
+	if currentDepth > MAX_DEPTH then
+		return {
+			name = instance.Name,
+			className = instance.ClassName,
+			children = {},
+			truncated = true,
+		}
+	end
+
+	local children = {}
+	for _, child in ipairs(instance:GetChildren()) do
+		table.insert(children, InstanceSerializer.serialize(child, currentDepth + 1))
+	end
+
+	local properties = {}
+
+	-- Safely try to get common properties
+	pcall(function()
+		if instance:IsA("BaseScript") then
+			properties.Disabled = (instance :: any).Disabled
+			properties.RunContext = tostring((instance :: any).RunContext)
+		end
+	end)
+
+	pcall(function()
+		if instance:IsA("BasePart") then
+			local pos = (instance :: any).Position
+			properties.Position = { X = pos.X, Y = pos.Y, Z = pos.Z }
+			properties.Anchored = (instance :: any).Anchored
+			properties.CanCollide = (instance :: any).CanCollide
+		end
+	end)
+
+	pcall(function()
+		if instance:IsA("Model") then
+			local prim = (instance :: any).PrimaryPart
+			properties.PrimaryPart = if prim then prim.Name else nil
+		end
+	end)
+
+	-- Get attributes
+	local attributes = {}
+	pcall(function()
+		attributes = instance:GetAttributes()
+	end)
+
+	-- Get tags
+	local tags = {}
+	pcall(function()
+		tags = instance:GetTags()
+	end)
+
+	return {
+		name = instance.Name,
+		className = instance.ClassName,
+		children = children,
+		properties = properties,
+		attributes = attributes,
+		tags = tags,
+	}
+end
+
+function InstanceSerializer.serializeGame(): any
+	return InstanceSerializer.serialize(game)
+end
+
+return InstanceSerializer
+]]></string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="3">
+      <Properties>
+        <string name="Name">OutputCapture</string>
+        <string name="Source"><![CDATA[--[[
+  OutputCapture — Hooks LogService.MessageOut to buffer Studio output.
+  Sends buffered output to the IDE server periodically.
+]]
+
+local HttpService = game:GetService("HttpService")
+local LogService = game:GetService("LogService")
+
+local OutputCapture = {}
+OutputCapture.__index = OutputCapture
+
+function OutputCapture.new(baseUrl: string, studioId: string)
+	local self = setmetatable({}, OutputCapture)
+	self._baseUrl = baseUrl
+	self._studioId = studioId
+	self._buffer = {} :: { {timestamp: number, messageType: string, message: string} }
+	self._connection = nil :: RBXScriptConnection?
+	self._maxBufferSize = 500
+	return self
+end
+
+function OutputCapture:start()
+	-- Hook into LogService
+	self._connection = LogService.MessageOut:Connect(function(message: string, messageType: Enum.MessageType)
+		local entry = {
+			timestamp = os.time() * 1000, -- milliseconds
+			messageType = tostring(messageType.Name),
+			message = message,
+		}
+
+		table.insert(self._buffer, entry)
+
+		-- Prevent buffer from growing too large
+		if #self._buffer > self._maxBufferSize then
+			table.remove(self._buffer, 1)
+		end
+	end)
+end
+
+function OutputCapture:flush()
+	if #self._buffer == 0 then
+		return true
+	end
+
+	local entries = self._buffer
+	self._buffer = {}
+
+	local payload = HttpService:JSONEncode({
+		studioId = self._studioId,
+		entries = entries,
+	})
+
+	local success, err = pcall(function()
+		HttpService:PostAsync(
+			self._baseUrl .. "/studio/output",
+			payload,
+			Enum.HttpContentType.ApplicationJson,
+			false
+		)
+	end)
+
+	if not success then
+		-- Put entries back if send failed
+		for i = #entries, 1, -1 do
+			table.insert(self._buffer, 1, entries[i])
+		end
+		warn("[LunaIDE] Failed to send output: " .. tostring(err))
+		return false
+	end
+
+	return true
+end
+
+function OutputCapture:stop()
+	if self._connection then
+		self._connection:Disconnect()
+		self._connection = nil
+	end
+	-- Final flush
+	self:flush()
+end
+
+function OutputCapture:getBufferSize(): number
+	return #self._buffer
+end
+
+return OutputCapture
+]]></string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="4">
+      <Properties>
+        <string name="Name">PlaytestController</string>
+        <string name="Source"><![CDATA[--[[
+  PlaytestController — Start and stop playtests via the plugin API.
+]]
+
+local RunService = game:GetService("RunService")
+local StudioTestService = game:GetService("StudioTestService")
+
+local PlaytestController = {}
+PlaytestController.__index = PlaytestController
+
+local STOP_SETTING_KEY = "LunaIDE_StopPlaytest"
+
+function PlaytestController.new(plugin: Plugin)
+	local self = setmetatable({}, PlaytestController)
+	self._plugin = plugin
+	
+	-- Determine DataModel type
+	local dataModelType = "Unknown"
+	if RunService:IsEdit() then
+		dataModelType = "Edit"
+	elseif RunService:IsServer() then
+		dataModelType = "Server"
+	elseif RunService:IsClient() then
+		dataModelType = "Client"
+	end
+	
+	-- Start background monitor if we are the Server datamodel (playtest active)
+	if dataModelType == "Server" then
+		self._plugin:SetSetting(STOP_SETTING_KEY, false)
+		task.spawn(function()
+			while true do
+				if self._plugin:GetSetting(STOP_SETTING_KEY) then
+					self._plugin:SetSetting(STOP_SETTING_KEY, false)
+					pcall(function()
+						StudioTestService:EndTest({})
+					end)
+				end
+				task.wait(0.5)
+			end
+		end)
+	end
+	
+	return self
+end
+
+-- If callback finishes before timeout, returns callback result, otherwise returns timeoutResult
+-- StudioTestService:ExecutePlayModeAsync({}) may error "Previous call to start play session has not been completed" immediately(still yielding) or yield until stop.
+local function callWithTimeout(callback: () -> any, timeout: number, timeoutResult: string): (string?, boolean)
+	local BindableEvent = Instance.new("BindableEvent")
+	local isDone = false
+	local result = timeoutResult
+	local isTimeout = false
+
+	task.spawn(function()
+		local _success, res = pcall(function()
+			return callback()
+		end)
+		if not isDone then
+			isDone = true
+			if res ~= nil then result = tostring(res) end
+			BindableEvent:Fire()
+		end
+	end)
+	
+	task.spawn(function()
+		task.wait(timeout)
+		if not isDone then
+			isDone = true
+			isTimeout = true
+			BindableEvent:Fire()
+		end
+	end)
+
+	if not isDone then
+		BindableEvent.Event:Wait()
+	end
+	
+	BindableEvent:Destroy()
+	return result, isTimeout
+end
+
+function PlaytestController:startPlaytest(payload: { mode: string? }): (boolean, any?)
+	local mode = payload and payload.mode or "Play"
+
+	if RunService:IsRunning() then
+		return true, { status = "already_running" }
+	end
+
+	if mode ~= "Play" and mode ~= "PlayHere" and mode ~= "Run" then
+		return false, "Unknown playtest mode: " .. tostring(mode)
+	end
+
+	local statusMessage = "started"
+	
+	if mode == "Play" or mode == "PlayHere" then
+		local result, isTimeout = callWithTimeout(function()
+			return StudioTestService:ExecutePlayModeAsync({})
+		end, 0.1, "started")
+		if not isTimeout then
+			statusMessage = result or "Unknown error"
+		end
+	elseif mode == "Run" then
+		local result, isTimeout = callWithTimeout(function()
+			return StudioTestService:ExecuteRunModeAsync({})
+		end, 0.1, "started")
+		if not isTimeout then
+			statusMessage = result or "Unknown error"
+		end
+	end
+
+	return true, { status = statusMessage, mode = mode }
+end
+
+function PlaytestController:stopPlaytest(): (boolean, any?)
+	-- RunService:IsRunning() always returns false for Edit DataModels,
+	-- so we skip it to prevent silently blocking the "stop" function
+	-- from injecting the global setting if Edit receives the command.
+	
+	self._plugin:SetSetting(STOP_SETTING_KEY, true)
+	
+	return true, { status = "stopped" }
+end
+
+return PlaytestController
+]]></string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="5">
+      <Properties>
+        <string name="Name">TestInjector</string>
+        <string name="Source"><![CDATA[--[[
+  TestInjector — Creates and executes test scripts in ServerScriptService.
+  Used by AI agents to inject test code without requiring a playtest.
+]]
+
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local TestInjector = {}
+TestInjector.__index = TestInjector
+
+function TestInjector.new()
+	local self = setmetatable({}, TestInjector)
+	self._injectedScripts = {} :: { Instance }
+	return self
+end
+
+function TestInjector:inject(payload: { source: string, name: string? }): (boolean, any?)
+	local scriptName = payload.name or ("LunaIDETest_" .. tostring(os.time()))
+
+	-- Remove any existing script with this name
+	local existing = ServerScriptService:FindFirstChild(scriptName)
+	if existing then
+		existing:Destroy()
+	end
+
+	-- Set .Source BEFORE parenting to avoid triggering StudioService:SetValue.
+	-- Studio's internal source-tracking only applies to DataModel-parented instances,
+	-- so setting source on an unparented instance is safe.
+	local testScript = Instance.new("Script")
+	testScript.Name = scriptName
+	testScript.Source = payload.source
+	testScript.Parent = ServerScriptService
+
+	table.insert(self._injectedScripts, testScript)
+
+	return true, {
+		name = scriptName,
+		status = "injected",
+	}
+end
+
+function TestInjector:cleanup()
+	for _, script in ipairs(self._injectedScripts) do
+		if script and script.Parent then
+			script:Destroy()
+		end
+	end
+	self._injectedScripts = {}
+end
+
+return TestInjector
+]]></string>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

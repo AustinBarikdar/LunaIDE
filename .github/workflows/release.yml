@@ -37,15 +37,36 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: bash fork/scripts/prepare.sh
+
+    # Portable ZIP (existing)
     - name: Zipping LunaIDE.app
       run: |
         cd ~/LunaIDE-dist
         zip -r LunaIDE-darwin-arm64.zip LunaIDE.app
-    - name: Upload macOS Artifact
+
+    # macOS .pkg installer
+    - name: Build macOS installer (.pkg)
+      run: |
+        chmod +x fork/installer/build-macos-pkg.sh fork/installer/postinstall-macos.sh
+        TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
+        VERSION="${TAG#v}"
+        # Default to 1.0.0 if no version can be parsed
+        if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+          VERSION="1.0.0"
+        fi
+        bash fork/installer/build-macos-pkg.sh "$VERSION"
+
+    - name: Upload macOS Artifact (ZIP)
       uses: actions/upload-artifact@v4
       with:
         name: macos-release-zip
         path: ~/LunaIDE-dist/LunaIDE-darwin-arm64.zip
+
+    - name: Upload macOS Artifact (PKG)
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-release-pkg
+        path: ~/LunaIDE-dist/LunaIDE-Setup-darwin-arm64.pkg
 
   build-windows:
     runs-on: windows-latest
@@ -69,15 +90,44 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: bash fork/scripts/prepare-win.sh
+
+    # Portable ZIP (existing)
     - name: Zipping LunaIDE
       run: |
         cd ~/LunaIDE-dist-win
         7z a LunaIDE-win32-x64.zip LunaIDE
-    - name: Upload Windows Artifact
+
+    # Windows NSIS installer
+    - name: Install NSIS
+      run: choco install nsis -y
+      shell: powershell
+
+    - name: Build Windows installer (NSIS)
+      shell: pwsh
+      run: |
+        $buildDir = (Resolve-Path "$env:USERPROFILE\LunaIDE-dist-win\LunaIDE").Path
+        $nsiFile = (Resolve-Path "fork\installer\lunaide.nsi").Path
+        $nsisExe = "C:\Program Files (x86)\NSIS\makensis.exe"
+        & $nsisExe /DBUILD_DIR="$buildDir" /NOCD $nsiFile
+        # NSIS outputs to the .nsi file's directory by default
+        $exePath = "fork\installer\LunaIDE-Setup-win32-x64.exe"
+        if (Test-Path $exePath) {
+          Move-Item $exePath "$env:USERPROFILE\LunaIDE-dist-win\"
+        } elseif (Test-Path "LunaIDE-Setup-win32-x64.exe") {
+          Move-Item "LunaIDE-Setup-win32-x64.exe" "$env:USERPROFILE\LunaIDE-dist-win\"
+        }
+
+    - name: Upload Windows Artifact (ZIP)
       uses: actions/upload-artifact@v4
       with:
         name: windows-release-zip
         path: ~/LunaIDE-dist-win/LunaIDE-win32-x64.zip
+
+    - name: Upload Windows Artifact (EXE)
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-release-exe
+        path: ~/LunaIDE-dist-win/LunaIDE-Setup-win32-x64.exe
 
   publish-release:
     needs: [build-macos, build-windows]
@@ -85,17 +135,29 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        
-      - name: Download macOS Artifact
+
+      - name: Download macOS Artifact (ZIP)
         uses: actions/download-artifact@v4
         with:
           name: macos-release-zip
           path: release/macos/
-          
-      - name: Download Windows Artifact
+
+      - name: Download macOS Artifact (PKG)
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release-pkg
+          path: release/macos/
+
+      - name: Download Windows Artifact (ZIP)
         uses: actions/download-artifact@v4
         with:
           name: windows-release-zip
+          path: release/windows/
+
+      - name: Download Windows Artifact (EXE)
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release-exe
           path: release/windows/
 
       - name: Release Packages
@@ -105,6 +167,8 @@ jobs:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: |
             release/macos/LunaIDE-darwin-arm64.zip
+            release/macos/LunaIDE-Setup-darwin-arm64.pkg
             release/windows/LunaIDE-win32-x64.zip
+            release/windows/LunaIDE-Setup-win32-x64.exe
           draft: true
           generate_release_notes: true

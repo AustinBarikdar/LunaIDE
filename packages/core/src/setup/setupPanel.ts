@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { execSync } from 'child_process';
 import { AgentConnector } from '../mcp/agentConnector.js';
 import { ExtensionUpdater, MANAGED_EXTENSIONS, ManagedExtension } from '../extensions/extensionUpdater.js';
@@ -238,19 +239,24 @@ export class SetupPanel implements vscode.Disposable {
     }
 
     private static async _gatherItems(): Promise<SetupItem[]> {
-        const home = process.env.HOME ?? '';
+        const home = os.homedir();
+        const isWindows = os.platform() === 'win32';
         const items: SetupItem[] = [];
 
         // 0. lunaide shell command in PATH
         let lunaideInPath = false;
+        const lunaideCmd = isWindows ? 'lunaide.cmd' : 'lunaide';
+        const whichCmd = isWindows ? 'where' : 'which';
         try {
-            const result = execSync('which lunaide', { encoding: 'utf-8' }).trim();
+            const result = execSync(`${whichCmd} ${lunaideCmd}`, { encoding: 'utf-8' }).trim();
             lunaideInPath = result.length > 0;
         } catch { /* not in PATH */ }
         // Also check ~/.local/bin directly
         if (!lunaideInPath) {
-            lunaideInPath = fs.existsSync(path.join(home, '.local', 'bin', 'lunaide')) ||
-                fs.existsSync('/usr/local/bin/lunaide');
+            const localBin = path.join(home, '.local', 'bin', lunaideCmd);
+            const usrLocalBin = path.join('/usr/local/bin', lunaideCmd);
+            const winAppLocalAppData = isWindows ? path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'Programs', 'LunaIDE', 'bin', lunaideCmd) : '';
+            lunaideInPath = fs.existsSync(localBin) || (!isWindows && fs.existsSync(usrLocalBin)) || (isWindows && fs.existsSync(winAppLocalAppData));
         }
         items.push({
             id: 'shellcmd',
@@ -262,7 +268,8 @@ export class SetupPanel implements vscode.Disposable {
         });
 
         // 1. Aftman
-        const aftmanBin = path.join(home, '.aftman', 'bin', 'aftman');
+        const aftmanExe = isWindows ? 'aftman.exe' : 'aftman';
+        const aftmanBin = path.join(home, '.aftman', 'bin', aftmanExe);
         const aftmanOk = fs.existsSync(aftmanBin);
         items.push({
             id: 'aftman',
@@ -274,25 +281,26 @@ export class SetupPanel implements vscode.Disposable {
         });
 
         // 2. Rojo
+        const rojoExe = isWindows ? 'rojo.exe' : 'rojo';
         const aftmanStore = path.join(home, '.aftman', 'tool-storage', 'rojo-rbx', 'rojo');
         let rojoBin = '';
         let rojoSource = '';
         if (fs.existsSync(aftmanStore)) {
             const versions = fs.readdirSync(aftmanStore).sort().reverse();
             for (const ver of versions) {
-                const bin = path.join(aftmanStore, ver, 'rojo');
+                const bin = path.join(aftmanStore, ver, rojoExe);
                 if (fs.existsSync(bin)) { rojoBin = bin; rojoSource = `aftman (${ver})`; break; }
             }
         }
-        if (!rojoBin && fs.existsSync(path.join(home, '.foreman', 'bin', 'rojo'))) {
-            rojoBin = path.join(home, '.foreman', 'bin', 'rojo'); rojoSource = 'foreman';
+        if (!rojoBin && fs.existsSync(path.join(home, '.foreman', 'bin', rojoExe))) {
+            rojoBin = path.join(home, '.foreman', 'bin', rojoExe); rojoSource = 'foreman';
         }
-        if (!rojoBin && fs.existsSync(path.join(home, '.cargo', 'bin', 'rojo'))) {
-            rojoBin = path.join(home, '.cargo', 'bin', 'rojo'); rojoSource = 'cargo';
+        if (!rojoBin && fs.existsSync(path.join(home, '.cargo', 'bin', rojoExe))) {
+            rojoBin = path.join(home, '.cargo', 'bin', rojoExe); rojoSource = 'cargo';
         }
         if (!rojoBin) {
             try {
-                const p = execSync('which rojo', { encoding: 'utf-8' }).trim();
+                const p = execSync(`${whichCmd} ${rojoExe}`, { encoding: 'utf-8' }).trim().split('\\n')[0];
                 if (p) { rojoBin = p; rojoSource = 'PATH'; }
             } catch { /* not found */ }
         }
@@ -306,7 +314,10 @@ export class SetupPanel implements vscode.Disposable {
         });
 
         // 3. Studio plugin
-        const pluginPath = path.join(home, 'Documents', 'Roblox', 'Plugins', 'LunaIDE.rbxmx');
+        const pluginsDir = isWindows 
+            ? path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'Roblox', 'Plugins')
+            : path.join(home, 'Documents', 'Roblox', 'Plugins');
+        const pluginPath = path.join(pluginsDir, 'LunaIDE.rbxmx');
         const pluginOk = fs.existsSync(pluginPath);
         items.push({
             id: 'plugin',
@@ -343,7 +354,23 @@ export class SetupPanel implements vscode.Disposable {
     // ── Install shell command ────────────────────────────────────────────────
 
     private async _installShellCommand(): Promise<void> {
-        const home = process.env.HOME ?? '';
+        const isWindows = os.platform() === 'win32';
+        const home = os.homedir();
+        
+        if (isWindows) {
+            void vscode.window.showInformationMessage(
+                `On Windows, please add the LunaIDE "bin" folder to your PATH environment variable manually.`, 
+                'Copy path to clipboard'
+            ).then((choice) => {
+                if (choice === 'Copy path to clipboard') {
+                    const setupDir = path.dirname(process.execPath);
+                    const binDir = path.join(setupDir, 'bin');
+                    vscode.env.clipboard.writeText(binDir);
+                }
+            });
+            return;
+        }
+
         const appBin = path.join(home, 'LunaIDE-dist', 'LunaIDE.app', 'Contents', 'Resources', 'app', 'bin', 'codium');
         const linkTargets = ['/usr/local/bin/lunaide', path.join(home, '.local', 'bin', 'lunaide')];
 
@@ -358,7 +385,7 @@ export class SetupPanel implements vscode.Disposable {
                 if (fs.existsSync(linkPath)) fs.unlinkSync(linkPath);
                 fs.symlinkSync(appBin, linkPath);
                 vscode.window.showInformationMessage(
-                    `Installed: ${linkPath}\nOpen a new terminal and type "lunaide ." to open a project.`
+                    `Installed: ${linkPath}\\nOpen a new terminal and type "lunaide ." to open a project.`
                 );
                 this._refresh();
                 return;
@@ -369,7 +396,7 @@ export class SetupPanel implements vscode.Disposable {
 
         // Both failed — show manual instructions
         void vscode.window.showErrorMessage(
-            `Could not write to /usr/local/bin or ~/.local/bin. Add manually:\n  ln -s "${appBin}" /usr/local/bin/lunaide`,
+            `Could not write to /usr/local/bin or ~/.local/bin. Add manually:\\n  ln -s "${appBin}" /usr/local/bin/lunaide`,
             'Copy command'
         ).then((choice) => {
             if (choice === 'Copy command') {
@@ -381,9 +408,21 @@ export class SetupPanel implements vscode.Disposable {
     // ── Install plugin ───────────────────────────────────────────────────────
 
     private async _installRojoPlugin(): Promise<void> {
+        const isWindows = os.platform() === 'win32';
+        const home = os.homedir();
+        const pluginsDir = isWindows 
+            ? path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'Roblox', 'Plugins')
+            : path.join(home, 'Documents', 'Roblox', 'Plugins');
+
         try {
-            execSync('rojo plugin install', { encoding: 'utf-8' });
-            vscode.window.showInformationMessage('Rojo Roblox Studio plugin installed successfully!');
+            fs.mkdirSync(pluginsDir, { recursive: true });
+            const bundledPlugin = path.join(this._context.extensionPath, 'Rojo.rbxm');
+            if (fs.existsSync(bundledPlugin)) {
+                fs.copyFileSync(bundledPlugin, path.join(pluginsDir, 'Rojo.rbxm'));
+                vscode.window.showInformationMessage('Rojo Roblox Studio plugin installed successfully!');
+            } else {
+                vscode.window.showErrorMessage('Bundled Rojo.rbxm not found. Please run prepare.sh to rebuild LunaIDE.');
+            }
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             vscode.window.showErrorMessage(`Failed to install Rojo plugin: ${message}`);
@@ -391,8 +430,11 @@ export class SetupPanel implements vscode.Disposable {
     }
 
     private async _installPlugin(): Promise<void> {
-        const home = process.env.HOME ?? '';
-        const pluginsDir = path.join(home, 'Documents', 'Roblox', 'Plugins');
+        const isWindows = os.platform() === 'win32';
+        const home = os.homedir();
+        const pluginsDir = isWindows 
+            ? path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'Roblox', 'Plugins')
+            : path.join(home, 'Documents', 'Roblox', 'Plugins');
 
         try {
             fs.mkdirSync(pluginsDir, { recursive: true });
@@ -436,8 +478,12 @@ export class SetupPanel implements vscode.Disposable {
 
         const src = uris[0].fsPath;
         const filename = path.basename(src);
-        const home = process.env.HOME ?? '';
-        const pluginsOut = path.join(home, 'Documents', 'Roblox', 'Plugins', filename);
+        const isWindows = os.platform() === 'win32';
+        const home = os.homedir();
+        const pluginsDir = isWindows 
+            ? path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'Roblox', 'Plugins')
+            : path.join(home, 'Documents', 'Roblox', 'Plugins');
+        const pluginsOut = path.join(pluginsDir, filename);
 
         try {
             fs.mkdirSync(path.dirname(pluginsOut), { recursive: true });
