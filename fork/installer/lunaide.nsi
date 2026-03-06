@@ -31,6 +31,8 @@ Unicode True
 
 ; ── MUI configuration ────────────────────────────────────────────────────────
 !define MUI_ABORTWARNING
+!define MUI_ICON "${__FILEDIR__}\..\assets\lunaide-icon.ico"
+!define MUI_UNICON "${__FILEDIR__}\..\assets\lunaide-icon.ico"
 
 !define MUI_WELCOMEPAGE_TITLE "Welcome to LunaIDE Setup"
 !define MUI_WELCOMEPAGE_TEXT "\
@@ -68,7 +70,7 @@ Section "LunaIDE Editor (required)" SecCore
 
   ; Bundle the setup-tools script for optional use later / re-run
   SetOutPath "$INSTDIR"
-  File "setup-tools.ps1"
+  File "${__FILEDIR__}\setup-tools.ps1"
 
   ; ── Start Menu shortcuts ──
   CreateDirectory "$SMPROGRAMS\LunaIDE"

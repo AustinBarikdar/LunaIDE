@@ -54,6 +54,25 @@ if [ -f "$APP_DIR/bin/codium.cmd" ]; then
     rm -f "$APP_DIR/bin/lunaide.cmd.bak"
 fi
 
+# Step 3b: Replace application icon
+echo "Replacing application icon..."
+ICON_PATH="$ROOT_DIR/fork/assets/lunaide-icon.ico"
+RCEDIT_EXE="$OUT_DIR/rcedit-x64.exe"
+if [ -f "$ICON_PATH" ]; then
+    if [ ! -f "$RCEDIT_EXE" ]; then
+        curl -sL "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe" -o "$RCEDIT_EXE"
+    fi
+    if [ -f "$RCEDIT_EXE" ]; then
+        "$RCEDIT_EXE" "$APP_DIR/LunaIDE.exe" --set-icon "$ICON_PATH" \
+            && echo "Icon replaced successfully." \
+            || echo "Warning: Could not replace icon in LunaIDE.exe"
+    else
+        echo "Warning: rcedit download failed, skipping icon replacement."
+    fi
+else
+    echo "Warning: Icon not found at $ICON_PATH, skipping icon replacement."
+fi
+
 # Step 4: Patch product.json
 echo "Patching product.json..."
 # Windows portable uses resources/app/product.json

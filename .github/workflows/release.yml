@@ -108,7 +108,7 @@ jobs:
         $buildDir = (Resolve-Path "$env:USERPROFILE\LunaIDE-dist-win\LunaIDE").Path
         $nsiFile = (Resolve-Path "fork\installer\lunaide.nsi").Path
         $nsisExe = "C:\Program Files (x86)\NSIS\makensis.exe"
-        & $nsisExe /DBUILD_DIR="$buildDir" /NOCD $nsiFile
+        & $nsisExe /DBUILD_DIR="$buildDir" $nsiFile
         # NSIS outputs to the .nsi file's directory by default
         $exePath = "fork\installer\LunaIDE-Setup-win32-x64.exe"
         if (Test-Path $exePath) {

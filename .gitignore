@@ -36,3 +36,6 @@ npm-debug.log*
 
 # Downloaded binaries (fetched by prepare.sh)
 packages/core/assets/bin/
+
+# Installers
+*.exe
