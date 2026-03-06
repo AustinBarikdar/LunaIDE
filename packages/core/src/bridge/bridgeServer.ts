@@ -908,89 +908,85 @@ export class BridgeServer implements vscode.Disposable {
         const filePath = path.join(os.tmpdir(), `lunaide_screenshot_${timestamp}.png`);
 
         try {
-            // Bring Roblox Studio to the foreground so macOS can render it
-            await new Promise<void>((resolve) => {
-                exec('osascript -e \'tell application "Roblox Studio" to activate\'', () => {
-                    // Don't fail if activate fails — Studio might still be capturable
-                    setTimeout(resolve, 500); // Wait for macOS to render the window
-                });
-            });
+            // Use a single Swift script to find and capture the window via CGWindowListCreateImage.
+            // This works on background windows without needing to focus/activate the app.
+            const swiftLines = [
+                'import CoreGraphics',
+                'import Foundation',
+                'import ImageIO',
+                'let windowList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as! [[String: Any]]',
+                'var candidates: [(id: Int, area: Int, onScreen: Bool)] = []',
+                'for w in windowList {',
+                '    let owner = w["kCGWindowOwnerName"] as? String ?? ""',
+                '    let layer = w["kCGWindowLayer"] as? Int ?? -1',
+                '    if owner.contains("Roblox") && layer == 0 {',
+                '        let bounds = w["kCGWindowBounds"] as? [String: Any] ?? [:]',
+                '        let width = bounds["Width"] as? Int ?? 0',
+                '        let height = bounds["Height"] as? Int ?? 0',
+                '        let area = width * height',
+                '        let onScreen = w["kCGWindowIsOnscreen"] as? Bool ?? false',
+                '        if area > 1000 {',
+                '            candidates.append((w["kCGWindowNumber"] as? Int ?? 0, area, onScreen))',
+                '        }',
+                '    }',
+                '}',
+                'candidates.sort { ($0.onScreen ? 0 : 1, -$0.area) < ($1.onScreen ? 0 : 1, -$1.area) }',
+                'guard let best = candidates.first else {',
+                '    fputs("ERROR: No Roblox Studio window found\\n", stderr)',
+                '    exit(1)',
+                '}',
+                `let outputPath = "${filePath}"`,
+                'var captured = false',
+                'for candidate in candidates {',
+                '    guard let image = CGWindowListCreateImage(',
+                '        CGRect.null,',
+                '        CGWindowListOption.optionIncludingWindow,',
+                '        CGWindowID(candidate.id),',
+                '        CGWindowImageOption.bestResolution',
+                '    ) else { continue }',
+                '    let url = URL(fileURLWithPath: outputPath)',
+                '    guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { continue }',
+                '    CGImageDestinationAddImage(dest, image, nil)',
+                '    if CGImageDestinationFinalize(dest) {',
+                '        captured = true',
+                '        break',
+                '    }',
+                '}',
+                'if !captured {',
+                '    fputs("ERROR: Failed to capture any Roblox Studio window\\n", stderr)',
+                '    exit(1)',
+                '}',
+                'print(outputPath)',
+            ];
+            const swiftCode = swiftLines.join('\n');
 
-            // Find ALL Roblox Studio window IDs (sorted by on-screen first, then by area)
-            const windowIds = await new Promise<string[]>((resolve, reject) => {
-                const swiftCode = [
-                    'import CoreGraphics',
-                    'let windowList = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as! [[String: Any]]',
-                    'var candidates: [(id: Int, area: Int, onScreen: Bool)] = []',
-                    'for w in windowList {',
-                    '    let owner = w["kCGWindowOwnerName"] as? String ?? ""',
-                    '    let layer = w["kCGWindowLayer"] as? Int ?? -1',
-                    '    if owner.contains("Roblox") && layer == 0 {',
-                    '        let bounds = w["kCGWindowBounds"] as? [String: Any] ?? [:]',
-                    '        let width = bounds["Width"] as? Int ?? 0',
-                    '        let height = bounds["Height"] as? Int ?? 0',
-                    '        let area = width * height',
-                    '        let onScreen = w["kCGWindowIsOnscreen"] as? Bool ?? false',
-                    '        if area > 1000 {',
-                    '            candidates.append((w["kCGWindowNumber"] as? Int ?? 0, area, onScreen))',
-                    '        }',
-                    '    }',
-                    '}',
-                    'candidates.sort { ($0.onScreen ? 0 : 1, -$0.area) < ($1.onScreen ? 0 : 1, -$1.area) }',
-                    'print(candidates.map { String($0.id) }.joined(separator: "\\n"))',
-                ].join('\n');
-                exec(`swift -e '${swiftCode}'`, (error, stdout) => {
-                    if (error) {
-                        reject(new Error(`Could not find Roblox Studio window: ${error.message}`));
+            const capturedPath = await new Promise<string>((resolve, reject) => {
+                exec(`swift -e '${swiftCode}'`, (error, stdout, stderr) => {
+                    if (error || stderr.includes('ERROR:')) {
+                        const msg = stderr.trim() || error?.message || 'Unknown error';
+                        reject(new Error(msg.replace(/^ERROR:\s*/, '')));
                     } else {
-                        const ids = stdout.trim().split('\n').filter((id) => id.length > 0);
-                        if (ids.length === 0) {
-                            reject(new Error('Roblox Studio window not found. Is it open?'));
+                        const out = stdout.trim();
+                        if (!out) {
+                            reject(new Error('Swift script produced no output'));
                         } else {
-                            resolve(ids);
+                            resolve(out);
                         }
                     }
                 });
             });
 
-            this.log(`Found ${windowIds.length} Roblox Studio windows: ${windowIds.join(', ')}`);
-
-            // Try each window ID until one succeeds (cross-Space windows will fail)
-            let captured = false;
-            for (const wid of windowIds) {
-                try {
-                    await new Promise<void>((resolve, reject) => {
-                        exec(`screencapture -l ${wid} -x -o "${filePath}"`, (error) => {
-                            if (error) reject(error);
-                            else resolve();
-                        });
-                    });
-                    if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
-                        this.log(`Captured window ID ${wid}`);
-                        captured = true;
-                        break;
-                    }
-                } catch {
-                    this.log(`Window ${wid} not capturable, trying next...`);
-                }
+            if (!fs.existsSync(capturedPath) || fs.statSync(capturedPath).size === 0) {
+                return { success: false, error: 'Screenshot file was not created or is empty' };
             }
 
-            if (!captured) {
-                return { success: false, error: 'Could not capture Roblox Studio. Please switch to the Space/screen where Roblox Studio is visible and try again.' };
-            }
-
-            // Verify file was created
-            if (!fs.existsSync(filePath)) {
-                return { success: false, error: 'Screenshot file was not created' };
-            }
-
-            const stats = fs.statSync(filePath);
-            this.log(`Screenshot saved: ${filePath} (${stats.size} bytes)`);
+            const stats = fs.statSync(capturedPath);
+            this.log(`Screenshot saved: ${capturedPath} (${stats.size} bytes)`);
 
             return {
                 success: true,
                 data: {
-                    path: filePath,
+                    path: capturedPath,
                     size: stats.size,
                 },
             };

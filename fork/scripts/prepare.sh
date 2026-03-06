@@ -49,6 +49,7 @@ PLIST="$APP_DIR/Contents/Info.plist"
 sed -i.bak 's/<string>VSCodium<\/string>/<string>LunaIDE<\/string>/g' "$PLIST"
 sed -i.bak 's/<string>com.vscodium<\/string>/<string>com.lunaide.app<\/string>/g' "$PLIST"
 sed -i.bak 's/<string>vscodium<\/string>/<string>lunaide<\/string>/g' "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable LunaIDE" "$PLIST"
 rm -f "$PLIST.bak"
 
 # Step 4.5: Generate and inject LunaIDE app icon
@@ -222,12 +223,24 @@ except Exception as e:
     print(f'Error patching package.json: {e}')
 " "$PACKAGE_JSON"
 
-# Step 5.6: Patch the Electron executable for the Safe Storage keychain string
-echo "Patching Electron executable keychain strings..."
-EXEC_FILE="$APP_DIR/Contents/MacOS/Electron"
+# Step 5.6: Patch the main executable for the Safe Storage keychain string
+echo "Patching executable keychain strings..."
+# Find the main executable file (avoiding helpers)
+EXEC_NAME=$(ls "$APP_DIR/Contents/MacOS" | grep -v "Helper" | head -n 1)
+EXEC_FILE="$APP_DIR/Contents/MacOS/$EXEC_NAME"
+
+if [ -z "$EXEC_NAME" ]; then
+    echo "Error: Could not find main executable in $APP_DIR/Contents/MacOS"
+    exit 1
+fi
+
 # We pad "LunaIDE  Safe Storage" to match the exact byte length of "VSCodium Safe Storage"
 LC_ALL=C sed -i.bak 's/VSCodium Safe Storage/LunaIDE  Safe Storage/g' "$EXEC_FILE"
 rm -f "$EXEC_FILE.bak"
+
+if [ "$EXEC_NAME" != "LunaIDE" ]; then
+    mv "$EXEC_FILE" "$APP_DIR/Contents/MacOS/LunaIDE"
+fi
 
 # Step 6: Build and Inject our Extensions
 echo "Building extensions..."
