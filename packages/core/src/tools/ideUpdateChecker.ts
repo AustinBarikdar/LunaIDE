@@ -19,8 +19,25 @@ export class IdeUpdateChecker implements vscode.Disposable {
     constructor(private readonly context: vscode.ExtensionContext) {
         this.disposables.push(
             vscode.commands.registerCommand('lunaide.checkForIdeUpdates', () => this.checkForUpdates(true)),
-            vscode.commands.registerCommand('lunaide.applyIdeUpdate', () => this.applyPendingUpdate())
+            vscode.commands.registerCommand('lunaide.applyIdeUpdate', () => this.applyPendingUpdate()),
+            vscode.commands.registerCommand('lunaide.setGitHubToken', () => this.setGitHubToken())
         );
+    }
+
+    async setGitHubToken(): Promise<void> {
+        const token = await vscode.window.showInputBox({
+            prompt: 'Enter your GitHub Personal Access Token (PAT)',
+            password: true,
+            placeHolder: 'ghp_...',
+        });
+
+        if (token) {
+            await this.context.secrets.store('lunaide.githubToken', token);
+            vscode.window.showInformationMessage('GitHub PAT saved successfully.');
+        } else if (token !== undefined) {
+            await this.context.secrets.delete('lunaide.githubToken');
+            vscode.window.showInformationMessage('GitHub PAT cleared.');
+        }
     }
 
     async checkForUpdates(force = false): Promise<void> {
@@ -28,8 +45,25 @@ export class IdeUpdateChecker implements vscode.Disposable {
         if (!force && Date.now() - lastChecked < CACHE_TTL_MS) return;
 
         try {
-            const latest = await getLatestGitHubRelease(IDE_REPO);
-            if (!latest) return;
+            const latest = await getLatestGitHubRelease(IDE_REPO, this.context);
+            if (!latest) {
+                if (force) {
+                    const token = await this.context.secrets.get('lunaide.githubToken');
+                    if (!token) {
+                        const choice = await vscode.window.showWarningMessage(
+                            'Failed to check for updates. The LunaIDE repository is private, so a GitHub Personal Access Token (PAT) is required.',
+                            'Set Token'
+                        );
+                        if (choice === 'Set Token') {
+                            await this.setGitHubToken();
+                            return this.checkForUpdates(true);
+                        }
+                    } else {
+                        vscode.window.showErrorMessage('Failed to check for updates. Is your GitHub token valid?');
+                    }
+                }
+                return;
+            }
 
             await this.context.globalState.update(CACHE_KEY, Date.now());
 
@@ -46,8 +80,10 @@ export class IdeUpdateChecker implements vscode.Disposable {
             } else if (force) {
                 vscode.window.showInformationMessage(`LunaIDE is up to date (v${current}).`);
             }
-        } catch {
-            // Silently ignore network errors
+        } catch (err: any) {
+            if (force) {
+                vscode.window.showErrorMessage(`Error checking for updates: ${err.message}`);
+            }
         }
 
         if (!this.timer) {
@@ -58,12 +94,12 @@ export class IdeUpdateChecker implements vscode.Disposable {
     private async downloadAndInstall(version: string): Promise<void> {
         const appPath = getAppBundlePath();
         if (!appPath) {
-            // Non-macOS fallback: open browser
-            void vscode.env.openExternal(vscode.Uri.parse(`https://github.com/${IDE_REPO}/releases/latest`));
+            vscode.window.showErrorMessage('Unable to determine application path for update.');
             return;
         }
 
-        const assetUrl = await findAssetUrl(version);
+        const token = await this.context.secrets.get('lunaide.githubToken');
+        const assetUrl = await findAssetUrl(version, token);
         if (!assetUrl) {
             vscode.window.showErrorMessage(
                 `No update package found for your platform. Please download manually.`,
@@ -87,7 +123,7 @@ export class IdeUpdateChecker implements vscode.Disposable {
                 },
                 async (progress) => {
                     progress.report({ increment: 0 });
-                    await downloadFile(assetUrl, zipPath, (pct) => {
+                    await downloadFile(assetUrl, zipPath, token, (pct) => {
                         progress.report({ increment: pct, message: `${Math.round(pct)}%` });
                     });
                 }
@@ -118,47 +154,123 @@ export class IdeUpdateChecker implements vscode.Disposable {
 
         const { version, zipPath, appPath } = this.pendingUpdate;
         const updateDir = path.join(os.tmpdir(), `lunaide-update-${version}`);
-        const scriptPath = path.join(os.tmpdir(), `lunaide-updater-${version}.sh`);
 
-        const script = [
-            '#!/bin/bash',
-            'set -e',
-            `BACKUP="${appPath}.bak"`,
-            `NEW_APP="${updateDir}/LunaIDE.app"`,
-            `APP="${appPath}"`,
-            // Wait for the current process to exit
-            'sleep 2',
-            // Unzip
-            `mkdir -p "${updateDir}"`,
-            `unzip -o "${zipPath}" -d "${updateDir}" > /dev/null 2>&1`,
-            // Find the .app (handle cases where it might be nested one level)
-            `if [ ! -d "$NEW_APP" ]; then`,
-            `  NEW_APP=$(find "${updateDir}" -maxdepth 2 -name "*.app" | head -1)`,
-            `fi`,
-            `if [ -z "$NEW_APP" ] || [ ! -d "$NEW_APP" ]; then`,
-            `  osascript -e 'display alert "LunaIDE update failed: .app not found in downloaded package."'`,
-            `  exit 1`,
-            `fi`,
-            // Swap: move old aside, copy new in
-            `rm -rf "$BACKUP" 2>/dev/null || true`,
-            `mv "$APP" "$BACKUP"`,
-            `cp -R "$NEW_APP" "$APP"`,
-            // Re-codesign (ad-hoc) — required because the binary is patched
-            `xattr -cr "$APP" 2>/dev/null || true`,
-            `codesign --force --deep --sign - "$APP" 2>/dev/null || true`,
-            // Relaunch
-            `open "$APP"`,
-            // Cleanup
-            `rm -rf "$BACKUP" "${updateDir}" "${zipPath}" "${scriptPath}" 2>/dev/null || true`,
-        ].join('\n');
+        if (process.platform === 'win32') {
+            const scriptPath = path.join(os.tmpdir(), `lunaide-updater-${version}.ps1`);
+            const backupPath = `${appPath}.bak`;
+            const exeName = 'LunaIDE.exe';
 
-        fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+            const script = [
+                `$ErrorActionPreference = 'Stop'`,
+                `$appPath = '${appPath}'`,
+                `$updateDir = '${updateDir}'`,
+                `$zipPath = '${zipPath}'`,
+                `$backupPath = '${backupPath}'`,
+                `$exePath = Join-Path -Path $appPath -ChildPath '${exeName}'`,
+                ``,
+                `# Wait for the main app process to exit`,
+                `Start-Sleep -Seconds 3`,
+                ``,
+                `# Extract the zip file`,
+                `New-Item -ItemType Directory -Force -Path $updateDir | Out-Null`,
+                `Expand-Archive -Path $zipPath -DestinationPath $updateDir -Force`,
+                ``,
+                `# Find the extracted root (sometimes zips contain a single root folder)`,
+                `$extractedRoot = $updateDir`,
+                `$subdirs = Get-ChildItem -Path $updateDir -Directory`,
+                `if ($subdirs.Count -eq 1 -and (Get-ChildItem -Path $updateDir -File).Count -eq 0) {`,
+                `    $extractedRoot = $subdirs[0].FullName`,
+                `}`,
+                ``,
+                `# Double check the exe exists in the extracted directory`,
+                `$extractedExe = Join-Path -Path $extractedRoot -ChildPath '${exeName}'`,
+                `if (-not (Test-Path -Path $extractedExe -PathType Leaf)) {`,
+                `    # Try to find it anywhere`,
+                `    $foundExe = Get-ChildItem -Path $updateDir -Filter '${exeName}' -Recurse | Select-Object -First 1`,
+                `    if ($foundExe) {`,
+                `        $extractedRoot = $foundExe.DirectoryName`,
+                `    } else {`,
+                `        Write-Host "Update failed: ${exeName} not found in zip."`,
+                `        Exit 1`,
+                `    }`,
+                `}`,
+                ``,
+                `# Rename current app path to backup (this works even if some files are locked, as long as the dir isn't)`,
+                `if (Test-Path -Path $backupPath) { Remove-Item -Recurse -Force $backupPath -ErrorAction SilentlyContinue }`,
+                `Rename-Item -Path $appPath -NewName $backupPath -ErrorAction Stop`,
+                ``,
+                `# Move the new files into place`,
+                `Move-Item -Path $extractedRoot -Destination $appPath -ErrorAction Stop`,
+                ``,
+                `# Start the newly installed app`,
+                `Start-Process -FilePath $exePath`,
+                ``,
+                `# Clean up`,
+                `Remove-Item -Recurse -Force $backupPath -ErrorAction SilentlyContinue`,
+                `Remove-Item -Recurse -Force $updateDir -ErrorAction SilentlyContinue`,
+                `Remove-Item -Force $zipPath -ErrorAction SilentlyContinue`,
+                `Remove-Item -Force $PSCommandPath -ErrorAction SilentlyContinue`
+            ].join('\r\n');
 
-        // Spawn the script detached so it survives the app quitting
-        const child = spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' });
-        child.unref();
+            fs.writeFileSync(scriptPath, script);
 
-        // Quit so the script can replace the .app
+            const child = spawn('powershell.exe', [
+                '-NoProfile',
+                '-ExecutionPolicy', 'Bypass',
+                '-WindowStyle', 'Hidden',
+                '-File', scriptPath
+            ], {
+                detached: true,
+                stdio: 'ignore'
+            });
+            child.unref();
+
+        } else if (process.platform === 'darwin') {
+            const scriptPath = path.join(os.tmpdir(), `lunaide-updater-${version}.sh`);
+
+            const script = [
+                '#!/bin/bash',
+                'set -e',
+                `BACKUP="${appPath}.bak"`,
+                `NEW_APP="${updateDir}/LunaIDE.app"`,
+                `APP="${appPath}"`,
+                // Wait for the current process to exit
+                'sleep 2',
+                // Unzip
+                `mkdir -p "${updateDir}"`,
+                `unzip -o "${zipPath}" -d "${updateDir}" > /dev/null 2>&1`,
+                // Find the .app (handle cases where it might be nested one level)
+                `if [ ! -d "$NEW_APP" ]; then`,
+                `  NEW_APP=$(find "${updateDir}" -maxdepth 2 -name "*.app" | head -1)`,
+                `fi`,
+                `if [ -z "$NEW_APP" ] || [ ! -d "$NEW_APP" ]; then`,
+                `  osascript -e 'display alert "LunaIDE update failed: .app not found in downloaded package."'`,
+                `  exit 1`,
+                `fi`,
+                // Swap: move old aside, copy new in
+                `rm -rf "$BACKUP" 2>/dev/null || true`,
+                `mv "$APP" "$BACKUP"`,
+                `cp -R "$NEW_APP" "$APP"`,
+                // Re-codesign (ad-hoc) — required because the binary is patched
+                `xattr -cr "$APP" 2>/dev/null || true`,
+                `codesign --force --deep --sign - "$APP" 2>/dev/null || true`,
+                // Relaunch
+                `open "$APP"`,
+                // Cleanup
+                `rm -rf "$BACKUP" "${updateDir}" "${zipPath}" "${scriptPath}" 2>/dev/null || true`,
+            ].join('\n');
+
+            fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+
+            // Spawn the script detached so it survives the app quitting
+            const child = spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' });
+            child.unref();
+        } else {
+            vscode.window.showErrorMessage('Auto-update is not supported on this platform.');
+            return;
+        }
+
+        // Quit so the script can replace the .app / exe
         void vscode.commands.executeCommand('workbench.action.quit');
     }
 
@@ -168,18 +280,23 @@ export class IdeUpdateChecker implements vscode.Disposable {
     }
 }
 
-/** Derive the macOS .app bundle path from the running Electron binary path. */
+/** Derive the macOS .app bundle path or Windows .exe parent directory from the running Electron binary path. */
 function getAppBundlePath(): string | undefined {
-    if (process.platform !== 'darwin') return undefined;
-    // process.execPath → /path/to/LunaIDE.app/Contents/MacOS/Electron
-    const marker = '.app/Contents/';
-    const idx = process.execPath.indexOf(marker);
-    if (idx === -1) return undefined;
-    return process.execPath.slice(0, idx + 4); // up to and including ".app"
+    if (process.platform === 'darwin') {
+        // process.execPath → /path/to/LunaIDE.app/Contents/MacOS/Electron
+        const marker = '.app/Contents/';
+        const idx = process.execPath.indexOf(marker);
+        if (idx === -1) return undefined;
+        return process.execPath.slice(0, idx + 4); // up to and including ".app"
+    } else if (process.platform === 'win32') {
+        // process.execPath → C:\path\to\LunaIDE\LunaIDE.exe
+        return path.dirname(process.execPath);
+    }
+    return undefined;
 }
 
 /** Fetch the release from GitHub and return the download URL for the matching platform asset. */
-function findAssetUrl(version: string): Promise<string | undefined> {
+function findAssetUrl(version: string, token?: string): Promise<string | undefined> {
     const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
     const platform = process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'win32' : 'linux';
 
@@ -187,7 +304,11 @@ function findAssetUrl(version: string): Promise<string | undefined> {
         const options: https.RequestOptions = {
             hostname: 'api.github.com',
             path: `/repos/${IDE_REPO}/releases/latest`,
-            headers: { 'User-Agent': 'LunaIDE', Accept: 'application/vnd.github.v3+json' },
+            headers: {
+                'User-Agent': 'LunaIDE',
+                Accept: 'application/vnd.github.v3+json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
             timeout: 10000,
         };
 
@@ -197,13 +318,19 @@ function findAssetUrl(version: string): Promise<string | undefined> {
             res.on('end', () => {
                 try {
                     const release = JSON.parse(data);
-                    const assets: Array<{ name: string; browser_download_url: string }> = release.assets ?? [];
+                    const assets: Array<{ name: string; url: string; browser_download_url: string }> = release.assets ?? [];
                     // Prefer exact platform+arch match, fall back to any zip
                     const asset =
                         assets.find(a => a.name.endsWith('.zip') && a.name.toLowerCase().includes(platform) && a.name.toLowerCase().includes(arch)) ??
                         assets.find(a => a.name.endsWith('.zip') && a.name.toLowerCase().includes(platform)) ??
                         assets.find(a => a.name.endsWith('.zip'));
-                    resolve(asset?.browser_download_url);
+
+                    // Note: If using a PAT on a private repo, browser_download_url might still 404 because it redirects to an S3 url that needs the token passed as an API call to the asset endpoint directly, OR the API can just download the asset url by setting accept to octet-stream. We'll use the API url for downloads with token.
+                    if (asset) {
+                        resolve(token ? asset.url : asset.browser_download_url);
+                    } else {
+                        resolve(undefined);
+                    }
                 } catch {
                     resolve(undefined);
                 }
@@ -216,14 +343,22 @@ function findAssetUrl(version: string): Promise<string | undefined> {
 }
 
 /** Download a URL to a local file, reporting progress as 0–100. Follows redirects. */
-function downloadFile(url: string, dest: string, onProgress?: (pct: number) => void): Promise<void> {
+function downloadFile(url: string, dest: string, token?: string, onProgress?: (pct: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
+        let isFirstRequest = true;
         const follow = (targetUrl: string) => {
             const parsed = new URL(targetUrl);
+            const isApi = parsed.hostname === 'api.github.com';
             const options: https.RequestOptions = {
                 hostname: parsed.hostname,
                 path: parsed.pathname + parsed.search,
-                headers: { 'User-Agent': 'LunaIDE' },
+                headers: {
+                    'User-Agent': 'LunaIDE',
+                    // When hitting api.github.com for an asset download, we MUST set Accept to application/octet-stream
+                    ...(isApi ? { Accept: 'application/octet-stream' } : {}),
+                    // Only send auth token to api.github.com, sending it to AWS S3 (redirect) causes errors
+                    ...((isApi && token) ? { Authorization: `Bearer ${token}` } : {})
+                },
                 timeout: 120000,
             };
             const req = https.get(options, (res) => {

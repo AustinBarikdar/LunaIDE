@@ -65,7 +65,7 @@ export class ToolUpdateChecker implements vscode.Disposable {
       const installed = this.getInstalledVersion(tool);
       if (!installed) return;
 
-      const latest = await getLatestGitHubRelease(tool.repo);
+      const latest = await getLatestGitHubRelease(tool.repo, this.context);
       if (!latest) return;
 
       await this.context.globalState.update(cacheKey, Date.now());
@@ -348,8 +348,16 @@ function readJsonResponse(res: import('http').IncomingMessage): Promise<string |
   });
 }
 
-export function getLatestGitHubRelease(repo: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
+export async function getLatestGitHubRelease(repo: string, context?: vscode.ExtensionContext): Promise<string | undefined> {
+  return new Promise(async (resolve) => {
+    let authHeader: string | undefined;
+    if (context) {
+      const token = await context.secrets.get('lunaide.githubToken');
+      if (token) {
+        authHeader = `Bearer ${token}`;
+      }
+    }
+
     // For Rojo, we want to capture pre-releases (e.g., 7.7.0-rc.1), so we fetch all releases.
     // For others, latest is usually fine, but fetching /releases works for both to get the absolute newest tag.
     const path = repo === 'rojo-rbx/rojo' ? `/repos/${repo}/releases` : `/repos/${repo}/releases/latest`;
@@ -357,7 +365,11 @@ export function getLatestGitHubRelease(repo: string): Promise<string | undefined
     const options: https.RequestOptions = {
       hostname: 'api.github.com',
       path,
-      headers: { 'User-Agent': 'LunaIDE', Accept: 'application/vnd.github.v3+json' },
+      headers: {
+        'User-Agent': 'LunaIDE',
+        Accept: 'application/vnd.github.v3+json',
+        ...(authHeader ? { Authorization: authHeader } : {})
+      },
       timeout: 10000,
     };
 
