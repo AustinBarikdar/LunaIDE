@@ -142,6 +142,8 @@ export class WelcomePanel {
   }
 
   private _getHtml(recentProjects: RecentProject[], totalRecent: number, placeData?: PlaceData): string {
+    const isMac = process.platform === 'darwin';
+    const modKey = isMac ? '⌘' : 'Ctrl';
     const recentRows = recentProjects.map((p) => {
       const letter = escapeHtml(p.name.charAt(0).toUpperCase());
       return `
@@ -532,7 +534,7 @@ export class WelcomePanel {
             <div class="action-desc">Create a new Roblox game</div>
           </div>
           <div class="action-shortcut">
-            <span class="kbd">⌘</span><span class="kbd">N</span>
+            <span class="kbd">${modKey}</span><span class="kbd">N</span>
           </div>
         </div>
 
@@ -547,7 +549,7 @@ export class WelcomePanel {
             <div class="action-desc">Navigate to project</div>
           </div>
           <div class="action-shortcut">
-            <span class="kbd">⌘</span><span class="kbd">O</span>
+            <span class="kbd">${modKey}</span><span class="kbd">O</span>
           </div>
         </div>
 
@@ -587,7 +589,7 @@ export class WelcomePanel {
         </svg>
         <span class="search-text">Search files, commands, or help...</span>
         <div class="action-shortcut">
-          <span class="kbd">⌘</span><span class="kbd">K</span>
+          <span class="kbd">${modKey}</span><span class="kbd">K</span>
         </div>
       </div>
     </div>
@@ -635,10 +637,12 @@ export class WelcomePanel {
   });
 
   // Keyboard shortcuts
+  const _isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   document.addEventListener('keydown', (e) => {
-    if (e.metaKey && e.key === 'n') { e.preventDefault(); newProject(); }
-    if (e.metaKey && e.key === 'o') { e.preventDefault(); openProject(); }
-    if (e.metaKey && e.key === 'k') { e.preventDefault(); openSearch(); }
+    const mod = _isMac ? e.metaKey : e.ctrlKey;
+    if (mod && e.key === 'n') { e.preventDefault(); newProject(); }
+    if (mod && e.key === 'o') { e.preventDefault(); openProject(); }
+    if (mod && e.key === 'k') { e.preventDefault(); openSearch(); }
   });
 </script>
 </body>

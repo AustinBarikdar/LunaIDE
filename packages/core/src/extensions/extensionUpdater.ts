@@ -11,13 +11,19 @@ export interface ManagedExtension {
     platform: string;    // e.g. "darwin-arm64"
 }
 
+function getExtensionPlatform(): string {
+    const os = process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'darwin' : 'linux';
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    return `${os}-${arch}`;
+}
+
 export const MANAGED_EXTENSIONS: ManagedExtension[] = [
     {
         id: 'JohnnyMorganz.luau-lsp',
         publisher: 'JohnnyMorganz',
         name: 'luau-lsp',
         displayName: 'Luau Language Server',
-        platform: 'darwin-arm64',
+        platform: getExtensionPlatform(),
     },
 ];
 
