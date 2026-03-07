@@ -1,6 +1,6 @@
 ; ============================================================================
 ; LunaIDE Windows Installer — NSIS Script
-; Installs LunaIDE, optionally sets up Aftman + Rojo toolchain.
+; Installs LunaIDE and sets up Aftman + Rojo toolchain.
 ; ============================================================================
 ; Build:  makensis /DBUILD_DIR="path\to\LunaIDE" fork\installer\lunaide.nsi
 ; ============================================================================
@@ -39,9 +39,9 @@ Unicode True
 This wizard will install LunaIDE and set up your Roblox development environment.$\r$\n$\r$\n\
 The following will be configured:$\r$\n\
   - LunaIDE editor$\r$\n\
-  - Aftman toolchain manager (optional)$\r$\n\
-  - Rojo file sync tool (optional)$\r$\n\
-  - Roblox Studio plugins (optional)$\r$\n$\r$\n\
+  - Aftman toolchain manager$\r$\n\
+  - Rojo file sync tool$\r$\n\
+  - Roblox Studio plugins$\r$\n$\r$\n\
 Click Next to continue."
 
 !define MUI_FINISHPAGE_RUN "$INSTDIR\LunaIDE.exe"
@@ -50,7 +50,6 @@ Click Next to continue."
 ; ── Pages ────────────────────────────────────────────────────────────────────
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
-!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
@@ -133,6 +132,7 @@ SectionEnd
 ; Section: Aftman + Rojo toolchain
 ; ============================================================================
 Section "Install Aftman + Rojo" SecToolchain
+  SectionIn RO
   DetailPrint "Running toolchain setup (Aftman + Rojo)..."
   DetailPrint "This may take a minute — downloading from GitHub..."
 
@@ -147,6 +147,7 @@ SectionEnd
 ; Section: Roblox Studio plugins
 ; ============================================================================
 Section "Install Studio Plugins" SecPlugins
+  SectionIn RO
   DetailPrint "Installing Roblox Studio plugins..."
 
   nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup-tools.ps1" -Action plugins'
@@ -154,14 +155,6 @@ Section "Install Studio Plugins" SecPlugins
   StrCmp $0 "0" +2
     DetailPrint "Plugin install completed with warnings (exit code: $0)."
 SectionEnd
-
-; ── Section descriptions ─────────────────────────────────────────────────────
-!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecCore}      "Install the LunaIDE editor and add it to your PATH."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop}    "Create a shortcut on your Desktop."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecToolchain}  "Download and install Aftman (Roblox tool manager) and Rojo (file sync tool)."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecPlugins}    "Copy the LunaIDE and Rojo sync plugins into your Roblox Studio Plugins folder."
-!insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ; ============================================================================
 ; Uninstaller

@@ -136,15 +136,26 @@ function extractVsix(vsixPath: string, targetDir: string): Promise<void> {
     return new Promise((resolve, reject) => {
         // VSIX is a ZIP. Contents are under an "extension/" subdirectory.
         const tmpExtract = vsixPath + '_extract';
-        execFile('unzip', ['-q', '-o', vsixPath, '-d', tmpExtract], (err) => {
-            if (err) { reject(err); return; }
+        const onExtracted = () => {
             const extSrc = path.join(tmpExtract, 'extension');
             if (fs.existsSync(extSrc)) {
                 copyDir(extSrc, targetDir);
             }
             fs.rmSync(tmpExtract, { recursive: true, force: true });
             resolve();
-        });
+        };
+
+        if (process.platform === 'win32') {
+            execFile('powershell', ['-NoProfile', '-Command', `Expand-Archive -Path '${vsixPath}' -DestinationPath '${tmpExtract}' -Force`], (err) => {
+                if (err) { reject(err); return; }
+                onExtracted();
+            });
+        } else {
+            execFile('unzip', ['-q', '-o', vsixPath, '-d', tmpExtract], (err) => {
+                if (err) { reject(err); return; }
+                onExtracted();
+            });
+        }
     });
 }
 

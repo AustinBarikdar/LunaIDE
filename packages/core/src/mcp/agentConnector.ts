@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { execSync } from 'child_process';
 
 export const AGENT_IDS = ['claudecode', 'codexcli'] as const;
@@ -17,19 +18,23 @@ export class AgentConnector {
     }
 
     static findNodeBinary(): string {
+        const isWindows = process.platform === 'win32';
+        const nodeName = isWindows ? 'node.exe' : 'node';
         const envPath = process.env.PATH ?? '';
-        for (const dir of envPath.split(':')) {
-            const bin = path.join(dir, 'node');
+        for (const dir of envPath.split(path.delimiter)) {
+            const bin = path.join(dir, nodeName);
             if (fs.existsSync(bin)) return bin;
         }
-        for (const p of ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']) {
-            if (fs.existsSync(p)) return p;
+        if (!isWindows) {
+            for (const p of ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']) {
+                if (fs.existsSync(p)) return p;
+            }
         }
         return 'node';
     }
 
     static agentConfigPath(agentId: string, workspacePath?: string): string {
-        const home = process.env.HOME ?? '';
+        const home = os.homedir();
         switch (agentId) {
             case 'claudecode':
                 return workspacePath ? path.join(workspacePath, '.mcp.json') : path.join(home, '.mcp.json');
@@ -42,7 +47,7 @@ export class AgentConnector {
     }
 
     static isAgentInstalled(agentId: string): boolean {
-        const home = process.env.HOME ?? '';
+        const home = os.homedir();
         switch (agentId) {
             case 'claudecode':
                 return fs.existsSync(path.join(home, '.claude')) ||
@@ -119,6 +124,7 @@ export class AgentConnector {
     }
 
     private static _tryWhich(bin: string): string {
-        try { return execSync(`which ${bin}`, { encoding: 'utf-8' }).trim(); } catch { return ''; }
+        const cmd = process.platform === 'win32' ? 'where' : 'which';
+        try { return execSync(`${cmd} ${bin}`, { encoding: 'utf-8' }).trim().split('\n')[0]; } catch { return ''; }
     }
 }

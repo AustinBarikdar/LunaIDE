@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as os from 'os';
 
 interface RecentProject {
   name: string;
@@ -116,7 +117,7 @@ export class WelcomePanel {
       const total = folders.length;
       const recentProjects: RecentProject[] = folders.slice(0, 7).map((w) => {
         const fsPath = (w.folderUri as vscode.Uri).fsPath;
-        const home = process.env.HOME ?? '';
+        const home = os.homedir();
         const displayPath = fsPath.startsWith(home)
           ? '~' + fsPath.slice(home.length)
           : fsPath;

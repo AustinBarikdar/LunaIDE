@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { BUILT_IN_PROFILES, writePlacesConfig, type Profile } from '../extension.js';
 import { getInstalledRojoVersion, getInstalledLuauLspVersion, getLatestGitHubRelease } from '../tools/toolUpdateChecker.js';
 
@@ -274,8 +275,8 @@ export class CreateProjectPanel {
   }
 
   private _getHtml(): string {
-    const defaultLocation = process.env.HOME
-      ? path.join(process.env.HOME, 'Documents')
+    const defaultLocation = os.homedir()
+      ? path.join(os.homedir(), 'Documents')
       : '';
 
     return `<!DOCTYPE html>

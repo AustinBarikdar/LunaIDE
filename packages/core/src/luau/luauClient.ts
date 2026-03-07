@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import {
   LanguageClient,
   LanguageClientOptions,
@@ -169,11 +170,11 @@ export class LuauClient implements vscode.Disposable {
     // Check common locations
     const searchPaths = [
       // Aftman
-      path.join(process.env.HOME || '', '.aftman', 'bin', binaryName),
+      path.join(os.homedir(), '.aftman', 'bin', binaryName),
       // Foreman
-      path.join(process.env.HOME || '', '.foreman', 'bin', binaryName),
+      path.join(os.homedir(), '.foreman', 'bin', binaryName),
       // Cargo
-      path.join(process.env.HOME || '', '.cargo', 'bin', binaryName),
+      path.join(os.homedir(), '.cargo', 'bin', binaryName),
     ];
 
     for (const searchPath of searchPaths) {

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { RojoConnectionState } from '@roblox-ide/shared';
 import { RojoStatus } from './rojoStatus.js';
 
@@ -174,7 +175,7 @@ export class RojoManager implements vscode.Disposable {
     // Try to find rojo in PATH
     const binaryName = process.platform === 'win32' ? 'rojo.exe' : 'rojo';
 
-    const home = process.env.HOME || '';
+    const home = os.homedir();
 
     // Check aftman tool storage directly (bypasses the shim's aftman.toml requirement)
     const aftmanStorage = path.join(home, '.aftman', 'tool-storage', 'rojo-rbx', 'rojo');
@@ -221,18 +222,34 @@ export class RojoManager implements vscode.Disposable {
   private async killProcessOnPort(port: number): Promise<void> {
     try {
       const { execSync } = await import('child_process');
-      const pids = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf-8' }).trim();
-      if (!pids) return;
-      for (const pid of pids.split('\n')) {
-        const p = pid.trim();
-        if (!p) continue;
-        this.log(`Killing stale process on port ${port} (PID: ${p})`);
-        try { execSync(`kill -TERM ${p}`); } catch { /* already dead */ }
+      if (process.platform === 'win32') {
+        // On Windows, use netstat to find PIDs listening on the port
+        const output = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf-8' }).trim();
+        if (!output) return;
+        const pids = new Set<string>();
+        for (const line of output.split('\n')) {
+          const parts = line.trim().split(/\s+/);
+          const pid = parts[parts.length - 1];
+          if (pid && pid !== '0') pids.add(pid);
+        }
+        for (const pid of pids) {
+          this.log(`Killing stale process on port ${port} (PID: ${pid})`);
+          try { execSync(`taskkill /PID ${pid} /F`); } catch { /* already dead */ }
+        }
+      } else {
+        const pids = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf-8' }).trim();
+        if (!pids) return;
+        for (const pid of pids.split('\n')) {
+          const p = pid.trim();
+          if (!p) continue;
+          this.log(`Killing stale process on port ${port} (PID: ${p})`);
+          try { execSync(`kill -TERM ${p}`); } catch { /* already dead */ }
+        }
       }
       // Give the OS a moment to release the port
       await new Promise<void>((resolve) => setTimeout(resolve, 300));
     } catch {
-      // lsof not available or nothing found — continue
+      // Command not available or nothing found — continue
     }
   }
 
@@ -267,7 +284,7 @@ export class RojoManager implements vscode.Disposable {
       return;
     }
     this.log('Project file changed, restarting Rojo...');
-    this.restart();
+    void this.restart();
   }
 
   private getPort(): number {

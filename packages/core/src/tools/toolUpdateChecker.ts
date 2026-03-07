@@ -193,7 +193,8 @@ export class ToolUpdateChecker implements vscode.Disposable {
 
         // Verify the binary exists. Aftman sometimes fails to download silently.
         const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-        const binaryPath = path.join(home, '.aftman', 'tool-storage', tool.repo, version, tool.id);
+        const binaryName = process.platform === 'win32' ? `${tool.id}.exe` : tool.id;
+        const binaryPath = path.join(home, '.aftman', 'tool-storage', tool.repo, version, binaryName);
 
         if (!fs.existsSync(binaryPath)) {
           // Manual fallback if Aftman failed to download
@@ -210,7 +211,9 @@ export class ToolUpdateChecker implements vscode.Disposable {
 
         if (tool.id === 'rojo') {
           // Delete existing plugin files before installing new ones
-          const pluginsDir = path.join(home, 'Documents', 'Roblox', 'Plugins');
+          const pluginsDir = process.platform === 'win32'
+            ? path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'Roblox', 'Plugins')
+            : path.join(home, 'Documents', 'Roblox', 'Plugins');
           ['Rojo.rbxm', 'Rojo.rbxmx'].forEach(file => {
             const p = path.join(pluginsDir, file);
             if (fs.existsSync(p)) {
@@ -283,19 +286,28 @@ export class ToolUpdateChecker implements vscode.Disposable {
           }).on('error', reject);
         });
 
-        // Use shell unzip to be simple
+        // Unzip using platform-appropriate command
         await new Promise((resolve, reject) => {
-          execFile('unzip', ['-o', zipPath, '-d', tempDir], (err) => {
-            if (err) reject(err); else resolve(true);
-          });
+          if (process.platform === 'win32') {
+            execFile('powershell', ['-NoProfile', '-Command', `Expand-Archive -Path '${zipPath}' -DestinationPath '${tempDir}' -Force`], (err) => {
+              if (err) reject(err); else resolve(true);
+            });
+          } else {
+            execFile('unzip', ['-o', zipPath, '-d', tempDir], (err) => {
+              if (err) reject(err); else resolve(true);
+            });
+          }
         });
 
         if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
 
-        const extractedRojo = path.join(tempDir, 'rojo');
+        const extractedBinaryName = process.platform === 'win32' ? 'rojo.exe' : 'rojo';
+        const extractedRojo = path.join(tempDir, extractedBinaryName);
         if (fs.existsSync(extractedRojo)) {
-          fs.renameSync(extractedRojo, path.join(storageDir, 'rojo'));
-          fs.chmodSync(path.join(storageDir, 'rojo'), 0o755);
+          fs.renameSync(extractedRojo, path.join(storageDir, extractedBinaryName));
+          if (process.platform !== 'win32') {
+            fs.chmodSync(path.join(storageDir, extractedBinaryName), 0o755);
+          }
         }
 
         fs.rmSync(tempDir, { recursive: true, force: true });
