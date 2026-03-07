@@ -64,7 +64,7 @@ export class ToolUpdateChecker implements vscode.Disposable {
       const installed = this.getInstalledVersion(tool);
       if (!installed) return;
 
-      const latest = await this.getLatestGitHubRelease(tool.repo);
+      const latest = await getLatestGitHubRelease(tool.repo);
       if (!latest) return;
 
       await this.context.globalState.update(cacheKey, Date.now());
@@ -83,10 +83,6 @@ export class ToolUpdateChecker implements vscode.Disposable {
     if (tool.id === 'rojo') return getInstalledRojoVersion();
     if (tool.id === 'luau-lsp') return getInstalledLuauLspVersion();
     return undefined;
-  }
-
-  private getLatestGitHubRelease(repo: string): Promise<string | undefined> {
-    return getLatestGitHubRelease(repo);
   }
 
   private showUpdateAvailable(tool: ManagedTool, installed: string, latest: string): void {

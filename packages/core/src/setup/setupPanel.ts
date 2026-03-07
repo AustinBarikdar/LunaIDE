@@ -6,7 +6,7 @@ import { execSync } from 'child_process';
 import { AgentConnector } from '../mcp/agentConnector.js';
 import { ExtensionUpdater, MANAGED_EXTENSIONS, ManagedExtension } from '../extensions/extensionUpdater.js';
 
-export interface SetupItem {
+interface SetupItem {
     id: string;
     label: string;
     status: 'ok' | 'error' | 'warning';
@@ -15,7 +15,7 @@ export interface SetupItem {
     actionCommand?: string;
 }
 
-export interface AgentItem {
+interface AgentItem {
     id: string;
     label: string;
     installed: boolean;
@@ -23,7 +23,7 @@ export interface AgentItem {
     configPath: string;
 }
 
-export interface ExtensionStatus {
+interface ExtensionStatus {
     ext: ManagedExtension;
     installedVersion: string | null;
     latestVersion: string | null | 'checking';

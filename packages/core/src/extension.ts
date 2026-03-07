@@ -21,7 +21,7 @@ import { ToolUpdateChecker } from './tools/toolUpdateChecker.js';
 import { IdeUpdateChecker } from './tools/ideUpdateChecker.js';
 
 // ── Built-in project profiles ────────────────────────────────────────────────
-export interface ProfileService {
+interface ProfileService {
   name: string;
   src: string;
 }
@@ -65,7 +65,7 @@ export const BUILT_IN_PROFILES: Record<string, Profile> = {
 };
 
 // ── Places config helpers ────────────────────────────────────────────────────
-export function readPlacesConfig(workspaceFolder: string): Record<string, { placeId?: number }> {
+function readPlacesConfig(workspaceFolder: string): Record<string, { placeId?: number }> {
   const cfgPath = path.join(workspaceFolder, '.lunaide', 'places.json');
   try {
     return JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
@@ -81,7 +81,7 @@ export function writePlacesConfig(workspaceFolder: string, config: Record<string
 }
 
 // ── Profile helpers ──────────────────────────────────────────────────────────
-export function readProfile(workspaceFolder: string): Profile {
+function readProfile(workspaceFolder: string): Profile {
   const profilePath = path.join(workspaceFolder, '.lunaide', 'profile.json');
   try {
     const data = JSON.parse(fs.readFileSync(profilePath, 'utf-8'));

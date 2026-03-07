@@ -1,23 +1,6 @@
 /** Rojo connection states */
 export type RojoConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
-/** Rojo project configuration (default.project.json) */
-export interface RojoProject {
-  name: string;
-  tree: RojoTreeNode;
-  servePort?: number;
-  servePlaceIds?: number[];
-  globIgnorePaths?: string[];
-}
-
-export interface RojoTreeNode {
-  $className?: string;
-  $path?: string | { optional?: string; required?: string };
-  $properties?: Record<string, unknown>;
-  $ignoreUnknownInstances?: boolean;
-  [key: string]: unknown;
-}
-
 /** Session snapshot for undo/redo */
 export interface SessionSnapshot {
   id: string;
@@ -42,17 +25,6 @@ export interface LuauDiagnostic {
   severity: 'error' | 'warning' | 'information' | 'hint';
   message: string;
   code?: string | number;
-}
-
-/** Roblox instance representation */
-export interface RobloxInstance {
-  name: string;
-  className: string;
-  path: string;
-  children: RobloxInstance[];
-  properties?: Record<string, unknown>;
-  attributes?: Record<string, unknown>;
-  tags?: string[];
 }
 
 /** Snapshot metadata (stored in session index) */

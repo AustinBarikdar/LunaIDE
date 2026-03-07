@@ -4,7 +4,7 @@ import * as os from 'os';
 import { execSync } from 'child_process';
 
 export const AGENT_IDS = ['claudecode', 'codexcli'] as const;
-export type AgentId = typeof AGENT_IDS[number];
+type AgentId = typeof AGENT_IDS[number];
 
 export const AGENT_LABELS: Record<AgentId, string> = {
     claudecode: 'Claude Code',
