@@ -20,7 +20,13 @@ cd "$OUT_DIR"
 
 # Step 1: Get the latest VSCodium download URL for darwin-arm64
 echo "Fetching latest VSCodium release..."
-LATEST_ASSET_URL=$(curl -s ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} "https://api.github.com/repos/VSCodium/vscodium/releases/latest" | grep "browser_download_url.*darwin-arm64.*\.zip" | cut -d '"' -f 4 | head -n 1)
+LATEST_ASSET_URL=$(curl -s ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} "https://api.github.com/repos/VSCodium/vscodium/releases/latest" | grep "browser_download_url.*darwin-arm64.*\.zip\"" | grep -v "sha[0-9]" | cut -d '"' -f 4 | head -n 1 || true)
+
+# If latest release doesn't have the needed builds yet, try the previous release
+if [ -z "$LATEST_ASSET_URL" ]; then
+    echo "Latest release missing darwin-arm64 builds, checking previous releases..."
+    LATEST_ASSET_URL=$(curl -s ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} "https://api.github.com/repos/VSCodium/vscodium/releases?per_page=5" | grep "browser_download_url.*darwin-arm64.*\.zip\"" | grep -v "sha[0-9]" | cut -d '"' -f 4 | head -n 1 || true)
+fi
 
 if [ -z "$LATEST_ASSET_URL" ]; then
     echo "Failed to find VSCodium download URL."
