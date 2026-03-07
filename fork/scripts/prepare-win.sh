@@ -252,8 +252,8 @@ mkdir -p "$APP_DIR/resources/app/product"
 # Copy from branding
 cp "$ROOT_DIR/fork/branding/product.json" "$APP_DIR/resources/app/product/defaultSettings.json" 2>/dev/null || true
 
-# Step 10: Replace watermarks
-echo "Replacing editor watermark..."
+# Step 10: Replace watermarks and application icon SVG
+echo "Replacing editor watermark and app icon..."
 MEDIA_DIR="$APP_DIR/resources/app/out/media"
 MOON_PATH='M 60 20 A 30 30 0 1 0 80 75 A 35 35 0 1 1 60 20 Z'
 mkdir -p "$MEDIA_DIR"
@@ -261,6 +261,21 @@ echo "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"40\" viewB
 echo "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"40\" viewBox=\"0 0 100 100\"><path d=\"$MOON_PATH\" fill=\"#B2B2B2\" fill-opacity=\".1\"/></svg>" > "$MEDIA_DIR/letterpress-light.svg"
 echo "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"40\" viewBox=\"0 0 100 100\"><path d=\"$MOON_PATH\" fill=\"#ffffff\" fill-opacity=\".6\"/></svg>" > "$MEDIA_DIR/letterpress-hcDark.svg"
 echo "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"40\" viewBox=\"0 0 100 100\"><path d=\"$MOON_PATH\" fill=\"#000000\" fill-opacity=\".15\"/></svg>" > "$MEDIA_DIR/letterpress-hcLight.svg"
+
+# Replace the top-left application icon (code-icon.svg) with LunaIDE moon
+cat > "$MEDIA_DIR/code-icon.svg" << 'ICONEOF'
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="220" fill="#1a1a2e"/>
+  <defs>
+    <linearGradient id="mg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#74C7EC"/>
+      <stop offset="100%" stop-color="#B4A7D6"/>
+    </linearGradient>
+  </defs>
+  <path d="M 600 200 A 300 300 0 1 0 800 750 A 350 350 0 1 1 600 200 Z" fill="url(#mg)"/>
+</svg>
+ICONEOF
+echo "App icon SVG replaced."
 
 # Step 11: Rojo sync plugin
 echo "Downloading Rojo sync plugin (v7.4.4)..."

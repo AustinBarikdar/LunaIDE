@@ -33,6 +33,9 @@ export const MCP_SERVER_VERSION = '0.1.0';
  * Stored in the OS temp dir so it never appears inside the user's project.
  */
 export function getBridgePortFile(workspacePath: string): string {
+  if (process.platform === 'win32') {
+    workspacePath = workspacePath.toLowerCase();
+  }
   // Simple djb2 hash of the workspace path
   let hash = 5381;
   for (let i = 0; i < workspacePath.length; i++) {

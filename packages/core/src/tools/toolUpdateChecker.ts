@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import * as https from 'https';
 import { execFile } from 'child_process';
 
@@ -188,7 +189,7 @@ export class ToolUpdateChecker implements vscode.Disposable {
         }
 
         // Verify the binary exists. Aftman sometimes fails to download silently.
-        const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+        const home = os.homedir();
         const binaryName = process.platform === 'win32' ? `${tool.id}.exe` : tool.id;
         const binaryPath = path.join(home, '.aftman', 'tool-storage', tool.repo, version, binaryName);
 
@@ -208,8 +209,8 @@ export class ToolUpdateChecker implements vscode.Disposable {
         if (tool.id === 'rojo') {
           // Delete existing plugin files before installing new ones
           const pluginsDir = process.platform === 'win32'
-            ? path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'Roblox', 'Plugins')
-            : path.join(home, 'Documents', 'Roblox', 'Plugins');
+            ? path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Roblox', 'Plugins')
+            : path.join(os.homedir(), 'Documents', 'Roblox', 'Plugins');
           ['Rojo.rbxm', 'Rojo.rbxmx'].forEach(file => {
             const p = path.join(pluginsDir, file);
             if (fs.existsSync(p)) {
@@ -244,7 +245,7 @@ export class ToolUpdateChecker implements vscode.Disposable {
       title: `Downloading Rojo v${version}...`,
       cancellable: false
     }, async (progress) => {
-      const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+      const home = os.homedir();
       const storageDir = path.join(home, '.aftman', 'tool-storage', 'rojo-rbx', 'rojo', version);
       const tempDir = path.join(home, '.aftman', 'temp-download');
 
@@ -387,7 +388,7 @@ export function getLatestGitHubRelease(repo: string): Promise<string | undefined
 }
 
 export function getInstalledRojoVersion(): string | undefined {
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+  const home = os.homedir();
   const storageDir = path.join(home, '.aftman', 'tool-storage', 'rojo-rbx', 'rojo');
 
   let entries: string[];
@@ -406,7 +407,7 @@ export function getInstalledRojoVersion(): string | undefined {
 }
 
 export function getInstalledLuauLspVersion(): string | undefined {
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+  const home = os.homedir();
   const storageDir = path.join(home, '.aftman', 'tool-storage', 'JohnnyMorganz', 'luau-lsp');
 
   let entries: string[];
@@ -425,7 +426,7 @@ export function getInstalledLuauLspVersion(): string | undefined {
 }
 
 function isAftmanInstalled(): boolean {
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+  const home = os.homedir();
   return fs.existsSync(path.join(home, '.aftman'));
 }
 

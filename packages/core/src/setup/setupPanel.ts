@@ -300,7 +300,7 @@ export class SetupPanel implements vscode.Disposable {
         }
         if (!rojoBin) {
             try {
-                const p = execSync(`${whichCmd} ${rojoExe}`, { encoding: 'utf-8' }).trim().split('\\n')[0];
+                const p = execSync(`${whichCmd} ${rojoExe}`, { encoding: 'utf-8' }).trim().split('\n')[0];
                 if (p) { rojoBin = p; rojoSource = 'PATH'; }
             } catch { /* not found */ }
         }

@@ -262,10 +262,14 @@ export class BridgeServer implements vscode.Disposable {
                 } else if (entry.isFile()) {
                     const ext = path.extname(entry.name);
                     if (!LUAU_EXTENSIONS.includes(ext as any)) continue;
+
+                    // Normalize backslashes to forward slashes for cross-platform glob matching and output
+                    const normalizedRelPath = relPath.replace(/\\/g, '/');
+
                     if (includeGlob) {
                         // Simple glob matching (just check if path includes the non-wildcard parts)
-                        const parts = includeGlob.replace(/\*/g, '').split('/').filter(Boolean);
-                        if (parts.length > 0 && !parts.every((p) => relPath.includes(p))) continue;
+                        const parts = includeGlob.replace(/\*/g, '').split(/[/\\]/).filter(Boolean);
+                        if (parts.length > 0 && !parts.every((p) => normalizedRelPath.includes(p))) continue;
                     }
 
                     try {
@@ -276,7 +280,7 @@ export class BridgeServer implements vscode.Disposable {
                                 ? pattern.test(lines[i])
                                 : lines[i].includes(query);
                             if (match) {
-                                results.push({ file: relPath, line: i + 1, text: lines[i].trim() });
+                                results.push({ file: normalizedRelPath, line: i + 1, text: lines[i].trim() });
                             }
                             if (pattern) pattern.lastIndex = 0; // Reset regex state
                         }
@@ -900,17 +904,93 @@ export class BridgeServer implements vscode.Disposable {
         }
 
         const platform = os.platform();
-        if (platform !== 'darwin') {
-            return { success: false, error: `Screenshot capture is currently only supported on macOS (detected: ${platform})` };
+        if (platform !== 'darwin' && platform !== 'win32') {
+            return { success: false, error: `Screenshot capture is currently only supported on macOS and Windows (detected: ${platform})` };
         }
 
         const timestamp = Date.now();
         const filePath = path.join(os.tmpdir(), `lunaide_screenshot_${timestamp}.png`);
 
         try {
-            // Use a single Swift script to find and capture the window via CGWindowListCreateImage.
-            // This works on background windows without needing to focus/activate the app.
-            const swiftLines = [
+            let capturedPath = '';
+
+            if (platform === 'win32') {
+                const psCode = `
+Add-Type -AssemblyName System.Drawing
+$studioProcess = Get-Process -Name "RobloxStudioBeta" -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $studioProcess) {
+    Write-Error "Roblox Studio is not running"
+    exit 1
+}
+
+$handle = $studioProcess.MainWindowHandle
+if ($handle -eq 0) {
+    Write-Error "Could not find main window for Roblox Studio"
+    exit 1
+}
+
+Add-Type @"
+    using System;
+    using System.Runtime.InteropServices;
+    public class User32 {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct Rect {
+            public int left;
+            public int top;
+            public int right;
+            public int bottom;
+        }
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetWindowRect(IntPtr hWnd, ref Rect rect);
+        [DllImport("user32.dll")]
+        public static extern bool IsWindowVisible(IntPtr hWnd);
+    }
+"@
+
+if (-not [User32]::IsWindowVisible($handle)) {
+    Write-Error "Roblox Studio window is not visible"
+    exit 1
+}
+
+$rect = New-Object User32+Rect
+[User32]::GetWindowRect($handle, [ref]$rect) > $null
+
+$width = $rect.right - $rect.left
+$height = $rect.bottom - $rect.top
+
+if ($width -le 0 -or $height -le 0) {
+    Write-Error "Invalid window dimensions"
+    exit 1
+}
+
+$bitmap = New-Object System.Drawing.Bitmap $width, $height
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$graphics.CopyFromScreen($rect.left, $rect.top, 0, 0, $bitmap.Size)
+$bitmap.Save("${filePath}", [System.Drawing.Imaging.ImageFormat]::Png)
+$graphics.Dispose()
+$bitmap.Dispose()
+
+Write-Output "${filePath}"
+`;
+                capturedPath = await new Promise<string>((resolve, reject) => {
+                    const child = exec(`powershell -NoProfile -Command -`, (error, stdout, stderr) => {
+                        if (error || stderr) {
+                            reject(new Error(stderr.trim() || error?.message || 'Unknown error capturing screen on Windows'));
+                        } else {
+                            const out = stdout.trim();
+                            if (!out) {
+                                reject(new Error('PowerShell script produced no output'));
+                            } else {
+                                resolve(out);
+                            }
+                        }
+                    });
+                    child.stdin?.write(psCode);
+                    child.stdin?.end();
+                });
+            } else {
+                // macOS Swift approach
+                const swiftLines = [
                 'import CoreGraphics',
                 'import Foundation',
                 'import ImageIO',
@@ -960,7 +1040,7 @@ export class BridgeServer implements vscode.Disposable {
             ];
             const swiftCode = swiftLines.join('\n');
 
-            const capturedPath = await new Promise<string>((resolve, reject) => {
+            capturedPath = await new Promise<string>((resolve, reject) => {
                 exec(`swift -e '${swiftCode}'`, (error, stdout, stderr) => {
                     if (error || stderr.includes('ERROR:')) {
                         const msg = stderr.trim() || error?.message || 'Unknown error';
@@ -975,6 +1055,7 @@ export class BridgeServer implements vscode.Disposable {
                     }
                 });
             });
+            } // end of platform specific capture code
 
             if (!fs.existsSync(capturedPath) || fs.statSync(capturedPath).size === 0) {
                 return { success: false, error: 'Screenshot file was not created or is empty' };

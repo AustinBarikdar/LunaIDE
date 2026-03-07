@@ -265,7 +265,16 @@ export class RojoManager implements vscode.Disposable {
       // Force kill after 3 seconds if still alive
       setTimeout(() => {
         if (proc && !proc.killed) {
-          proc.kill('SIGKILL');
+          if (process.platform === 'win32') {
+            try {
+              const { execSync } = require('child_process');
+              execSync(`taskkill /PID ${proc.pid} /T /F`);
+            } catch {
+              proc.kill();
+            }
+          } else {
+            proc.kill('SIGKILL');
+          }
         }
       }, 3000);
     });

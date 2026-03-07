@@ -96,10 +96,12 @@ export class AgentConnector {
             if (fs.existsSync(cfgPath)) {
                 content = fs.readFileSync(cfgPath, 'utf-8');
             }
+            const mcpServerToml = mcpServer.replace(/\\/g, '/');
+            const nodeToml = node.replace(/\\/g, '/');
             const argsToml = workspacePath
-                ? `["${mcpServer}", "${workspacePath}"]`
-                : `["${mcpServer}"]`;
-            const tomlBlock = `[mcp_servers.lunaide]\ncommand = "${node}"\nargs = ${argsToml}`;
+                ? `["${mcpServerToml}", "${workspacePath.replace(/\\/g, '/')}"]`
+                : `["${mcpServerToml}"]`;
+            const tomlBlock = `[mcp_servers.lunaide]\ncommand = "${nodeToml}"\nargs = ${argsToml}`;
             if (content.includes('[mcp_servers.lunaide]') || content.includes('[mcpServers.lunaide]')) {
                 // Replace the entire existing block up to the next section or EOF
                 content = content.replace(
