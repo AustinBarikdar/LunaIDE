@@ -1,6 +1,6 @@
 {
   "name": "luna-ide",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "description": "LunaIDE - A VS Code-based IDE for Roblox development with built-in Rojo, Luau LSP, and MCP server",
   "scripts": {
