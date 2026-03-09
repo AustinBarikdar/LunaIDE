@@ -41,6 +41,11 @@ export class IdeUpdateChecker implements vscode.Disposable {
     }
 
     async checkForUpdates(force = false): Promise<void> {
+        // Always ensure the background timer is running, regardless of network outcome.
+        if (!this.timer) {
+            this.timer = setInterval(() => { void this.checkForUpdates(); }, CHECK_INTERVAL_MS);
+        }
+
         const lastChecked = this.context.globalState.get<number>(CACHE_KEY, 0);
         if (!force && Date.now() - lastChecked < CACHE_TTL_MS) return;
 
@@ -56,7 +61,7 @@ export class IdeUpdateChecker implements vscode.Disposable {
                         );
                         if (choice === 'Set Token') {
                             await this.setGitHubToken();
-                            return this.checkForUpdates(true);
+                            await this.checkForUpdates(true);
                         }
                     } else {
                         vscode.window.showErrorMessage('Failed to check for updates. Is your GitHub token valid?');
@@ -84,10 +89,6 @@ export class IdeUpdateChecker implements vscode.Disposable {
             if (force) {
                 vscode.window.showErrorMessage(`Error checking for updates: ${err.message}`);
             }
-        }
-
-        if (!this.timer) {
-            this.timer = setInterval(() => { void this.checkForUpdates(); }, CHECK_INTERVAL_MS);
         }
     }
 
@@ -123,8 +124,11 @@ export class IdeUpdateChecker implements vscode.Disposable {
                 },
                 async (progress) => {
                     progress.report({ increment: 0 });
+                    let lastPct = 0;
                     await downloadFile(assetUrl, zipPath, token, (pct) => {
-                        progress.report({ increment: pct, message: `${Math.round(pct)}%` });
+                        const delta = pct - lastPct;
+                        lastPct = pct;
+                        progress.report({ increment: delta, message: `${Math.round(pct)}%` });
                     });
                 }
             );
@@ -303,7 +307,7 @@ function findAssetUrl(version: string, token?: string): Promise<string | undefin
     return new Promise((resolve) => {
         const options: https.RequestOptions = {
             hostname: 'api.github.com',
-            path: `/repos/${IDE_REPO}/releases/latest`,
+            path: `/repos/${IDE_REPO}/releases/tags/v${version}`,
             headers: {
                 'User-Agent': 'LunaIDE',
                 Accept: 'application/vnd.github.v3+json',
@@ -345,7 +349,6 @@ function findAssetUrl(version: string, token?: string): Promise<string | undefin
 /** Download a URL to a local file, reporting progress as 0–100. Follows redirects. */
 function downloadFile(url: string, dest: string, token?: string, onProgress?: (pct: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
-        let isFirstRequest = true;
         const follow = (targetUrl: string) => {
             const parsed = new URL(targetUrl);
             const isApi = parsed.hostname === 'api.github.com';
