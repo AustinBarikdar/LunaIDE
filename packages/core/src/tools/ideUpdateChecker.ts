@@ -258,8 +258,9 @@ export class IdeUpdateChecker implements vscode.Disposable {
                 // Re-codesign (ad-hoc) — required because the binary is patched
                 `xattr -cr "$APP" 2>/dev/null || true`,
                 `codesign --force --deep --sign - "$APP" 2>/dev/null || true`,
-                // Relaunch
-                `open "$APP"`,
+                // Relaunch (use -n to force a new instance in case macOS still sees the old process)
+                `sleep 1`,
+                `open -n "$APP"`,
                 // Cleanup
                 `rm -rf "$BACKUP" "${updateDir}" "${zipPath}" "${scriptPath}" 2>/dev/null || true`,
             ].join('\n');
