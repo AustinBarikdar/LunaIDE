@@ -2,7 +2,7 @@
   "name": "roblox-ide-core",
   "displayName": "LunaIDE",
   "description": "Roblox development IDE with built-in Rojo, Luau LSP, and MCP server",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "publisher": "roblox-ide",
   "engines": {
     "vscode": "^1.90.0"

@@ -234,41 +234,42 @@ export class IdeUpdateChecker implements vscode.Disposable {
 
             const script = [
                 '#!/bin/bash',
-                'set -e',
+                `die() { osascript -e "display alert \\"LunaIDE update failed: $1\\""; exit 1; }`,
                 `BACKUP="${appPath}.bak"`,
                 `NEW_APP="${updateDir}/LunaIDE.app"`,
                 `APP="${appPath}"`,
                 // Wait for the current process to exit
                 'sleep 2',
                 // Unzip
-                `mkdir -p "${updateDir}"`,
-                `unzip -o "${zipPath}" -d "${updateDir}" > /dev/null 2>&1`,
+                `mkdir -p "${updateDir}"          || die "Could not create temp directory"`,
+                `unzip -o "${zipPath}" -d "${updateDir}" > /dev/null 2>&1 || die "Failed to extract update archive"`,
                 // Find the .app (handle cases where it might be nested one level)
                 `if [ ! -d "$NEW_APP" ]; then`,
                 `  NEW_APP=$(find "${updateDir}" -maxdepth 2 -name "*.app" | head -1)`,
                 `fi`,
                 `if [ -z "$NEW_APP" ] || [ ! -d "$NEW_APP" ]; then`,
-                `  osascript -e 'display alert "LunaIDE update failed: .app not found in downloaded package."'`,
-                `  exit 1`,
+                `  die ".app bundle not found in downloaded package"`,
                 `fi`,
                 // Swap: move old aside, copy new in
                 `rm -rf "$BACKUP" 2>/dev/null || true`,
-                `mv "$APP" "$BACKUP"`,
-                `cp -R "$NEW_APP" "$APP"`,
+                `mv "$APP" "$BACKUP"    || die "Could not move current app aside (check permissions)"`,
+                `cp -R "$NEW_APP" "$APP" || die "Could not copy new app into place (check disk space)"`,
                 // Re-codesign (ad-hoc) — required because the binary is patched
                 `xattr -cr "$APP" 2>/dev/null || true`,
                 `codesign --force --deep --sign - "$APP" 2>/dev/null || true`,
                 // Relaunch (use -n to force a new instance in case macOS still sees the old process)
-                `sleep 1`,
-                `open -n "$APP"`,
+                `sleep 2`,
+                `open -n "$APP" || osascript -e 'display alert "Update installed successfully. Please open LunaIDE manually."'`,
                 // Cleanup
                 `rm -rf "$BACKUP" "${updateDir}" "${zipPath}" "${scriptPath}" 2>/dev/null || true`,
             ].join('\n');
 
             fs.writeFileSync(scriptPath, script, { mode: 0o755 });
 
-            // Spawn the script detached so it survives the app quitting
-            const child = spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' });
+            // Spawn the script detached so it survives the app quitting; log to file for debugging
+            const logPath = path.join(os.tmpdir(), `lunaide-updater-${version}.log`);
+            const logFd = fs.openSync(logPath, 'w');
+            const child = spawn('bash', [scriptPath], { detached: true, stdio: ['ignore', logFd, logFd] });
             child.unref();
         } else {
             vscode.window.showErrorMessage('Auto-update is not supported on this platform.');
