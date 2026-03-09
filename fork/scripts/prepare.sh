@@ -314,8 +314,10 @@ fi
 
 # VS Code requires built-in extensions to be named exactly: publisher.name-version
 EXT_DIR="$APP_DIR/Contents/Resources/app/extensions"
-CORE_EXT_DIR="$EXT_DIR/roblox-ide.roblox-ide-core-0.1.0"
-MCP_EXT_DIR="$EXT_DIR/roblox-ide.roblox-ide-mcp-0.1.0"
+CORE_VERSION=$(python3 -c "import json; print(json.load(open('$ROOT_DIR/packages/core/package.json'))['version'])")
+MCP_VERSION=$(python3 -c "import json; print(json.load(open('$ROOT_DIR/packages/mcp-server/package.json'))['version'])")
+CORE_EXT_DIR="$EXT_DIR/roblox-ide.roblox-ide-core-${CORE_VERSION}"
+MCP_EXT_DIR="$EXT_DIR/roblox-ide.roblox-ide-mcp-${MCP_VERSION}"
 
 mkdir -p "$CORE_EXT_DIR"
 mkdir -p "$MCP_EXT_DIR"

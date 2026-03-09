@@ -31,6 +31,18 @@ jobs:
         cache: 'pnpm'
     - name: Install dependencies
       run: pnpm install
+    - name: Set extension version from tag
+      shell: bash
+      run: |
+        TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
+        VERSION="${TAG#v}"
+        if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+          VERSION="0.0.1"
+        fi
+        for pkg in packages/core/package.json packages/mcp-server/package.json; do
+          jq --arg v "$VERSION" '.version = $v' "$pkg" > tmp.$$.json && mv tmp.$$.json "$pkg"
+        done
+        echo "Set version to $VERSION"
     - name: Build
       run: pnpm build
     - name: Run configure prep script
@@ -84,6 +96,18 @@ jobs:
         cache: 'pnpm'
     - name: Install dependencies
       run: pnpm install
+    - name: Set extension version from tag
+      shell: bash
+      run: |
+        TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
+        VERSION="${TAG#v}"
+        if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+          VERSION="0.0.1"
+        fi
+        for pkg in packages/core/package.json packages/mcp-server/package.json; do
+          jq --arg v "$VERSION" '.version = $v' "$pkg" > tmp.$$.json && mv tmp.$$.json "$pkg"
+        done
+        echo "Set version to $VERSION"
     - name: Build
       run: pnpm build
     - name: Run configure prep script
