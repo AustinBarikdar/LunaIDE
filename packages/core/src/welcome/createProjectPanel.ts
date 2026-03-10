@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { BUILT_IN_PROFILES, writePlacesConfig, type Profile } from '../extension.js';
+import { BUILT_IN_PROFILES, writePlacesConfig, Profile } from '../utils/workspace.js';
 import { getInstalledRojoVersion, getInstalledLuauLspVersion, getLatestGitHubRelease } from '../tools/toolUpdateChecker.js';
 
 export class CreateProjectPanel {

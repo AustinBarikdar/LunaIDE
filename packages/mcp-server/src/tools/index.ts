@@ -28,7 +28,7 @@ import { manageSelectionTool } from './manageSelection.js';
 import { manageStudioInstanceTool } from './manageStudioInstance.js';
 import { manageTagsTool } from './manageTags.js';
 
-import { createUITool } from './createUI.js';
+import { createUITool } from './ui/index.js';
 import { captureScreenshotTool } from './captureScreenshot.js';
 import { manageTestsTool } from './manageTests.js';
 
