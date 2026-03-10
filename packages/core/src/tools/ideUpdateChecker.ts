@@ -357,16 +357,19 @@ export class IdeUpdateChecker implements vscode.Disposable {
                 `fi`,
                 `echo "Binary validated: $APP_BIN"`,
                 ``,
-                `# --- 6. Relaunch ---`,
-                `touch "$APP"`,
-                `echo "Relaunching LunaIDE via open..."`,
-                `open "$APP"`,
-                `echo "open exit code: $?"`,
-                ``,
-                `# --- 7. Cleanup ---`,
-                `sleep 5`,
+                `# --- 6. Cleanup ---`,
+                `echo "Cleaning up..."`,
                 `rm -rf "$BACKUP" "$EXTRACT" "$ZIP" 2>/dev/null || true`,
+                ``,
+                `# --- 7. Relaunch ---`,
+                `echo "Relaunching LunaIDE..."`,
+                `sleep 2`,
+                `unset ELECTRON_RUN_AS_NODE`,
+                `unset VSCODE_IPC_HOOK`,
+                `unset VSCODE_IPC_HOOK_EXTHOST`,
+                `open -n "$APP"`,
                 `echo "=== Update complete at $(date) ==="`,
+
             ].join('\n');
 
             fs.writeFileSync(scriptPath, script, { mode: 0o755 });
