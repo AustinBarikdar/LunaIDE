@@ -8,11 +8,24 @@ import { ExtensionUpdater, ManagedExtension, extractVsix } from '../extensionUpd
 function createZipSync(outputPath: string, cwd: string, entries: string[]): void {
   const { execFileSync } = require('child_process') as typeof import('child_process');
   if (process.platform === 'win32') {
-    const fullPaths = entries.map(e => path.join(cwd, e)).join("','");
-    execFileSync('powershell', [
-      '-NoProfile', '-Command',
-      `Compress-Archive -Path '${fullPaths}' -DestinationPath '${outputPath}' -Force`,
-    ]);
+    // Compress-Archive appends .zip when the destination doesn't end with .zip,
+    // so create as .zip then rename to the desired path (e.g. .vsix).
+    const zipPath = outputPath + '.zip';
+    if (entries.length === 1 && entries[0] === '.') {
+      // Zip all contents of cwd, preserving relative directory structure
+      execFileSync('powershell', [
+        '-NoProfile', '-Command',
+        `Compress-Archive -Path '${path.join(cwd, '*')}' -DestinationPath '${zipPath}' -Force`,
+      ]);
+    } else {
+      // Zip specific files — use -LiteralPath to handle brackets in filenames
+      const literalPaths = entries.map(e => `'${path.join(cwd, e)}'`).join(',');
+      execFileSync('powershell', [
+        '-NoProfile', '-Command',
+        `Compress-Archive -LiteralPath ${literalPaths} -DestinationPath '${zipPath}' -Force`,
+      ]);
+    }
+    fs.renameSync(zipPath, outputPath);
   } else {
     execFileSync('zip', ['-r', outputPath, ...entries], { cwd });
   }
