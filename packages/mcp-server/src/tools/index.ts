@@ -30,6 +30,7 @@ import { manageTagsTool } from './manageTags.js';
 
 import { createUITool } from './createUI.js';
 import { captureScreenshotTool } from './captureScreenshot.js';
+import { manageTestsTool } from './manageTests.js';
 
 export type ToolContent =
     | { type: 'text'; text: string }
@@ -86,6 +87,8 @@ export function createTools(bridge: BridgeClient, lockManager: LockManager): Too
 
         createUITool(bridge),
         captureScreenshotTool(bridge),
+        // Testing
+        manageTestsTool(bridge),
         // OpenCloud
         publishPlaceTool(bridge),
         manageDatastoreTool(bridge),
