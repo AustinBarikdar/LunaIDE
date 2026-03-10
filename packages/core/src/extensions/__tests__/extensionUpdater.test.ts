@@ -4,6 +4,20 @@ import * as path from 'path';
 import * as os from 'os';
 import { ExtensionUpdater, ManagedExtension, extractVsix } from '../extensionUpdater.js';
 
+/** Cross-platform zip creation for tests (macOS/Linux uses `zip`, Windows uses PowerShell). */
+function createZipSync(outputPath: string, cwd: string, entries: string[]): void {
+  const { execFileSync } = require('child_process') as typeof import('child_process');
+  if (process.platform === 'win32') {
+    const fullPaths = entries.map(e => path.join(cwd, e)).join("','");
+    execFileSync('powershell', [
+      '-NoProfile', '-Command',
+      `Compress-Archive -Path '${fullPaths}' -DestinationPath '${outputPath}' -Force`,
+    ]);
+  } else {
+    execFileSync('zip', ['-r', outputPath, ...entries], { cwd });
+  }
+}
+
 vi.mock('os', async () => {
   const actual = await vi.importActual<typeof import('os')>('os');
   return { ...actual, homedir: vi.fn() };
@@ -69,13 +83,12 @@ describe('extractVsix', () => {
 
   it('rejects when VSIX has no extension/ directory', async () => {
     // Create a zip that contains only a file at root level (no extension/ subdir)
-    const { execFileSync } = await import('child_process');
     const zipContent = path.join(tmpDir, 'content');
     fs.mkdirSync(zipContent, { recursive: true });
     fs.writeFileSync(path.join(zipContent, '[Content_Types].xml'), '<Types/>');
 
     const vsixPath = path.join(tmpDir, 'test.vsix');
-    execFileSync('zip', ['-j', vsixPath, path.join(zipContent, '[Content_Types].xml')]);
+    createZipSync(vsixPath, zipContent, ['[Content_Types].xml']);
 
     const targetDir = path.join(tmpDir, 'target');
     fs.mkdirSync(targetDir, { recursive: true });
@@ -86,7 +99,6 @@ describe('extractVsix', () => {
   });
 
   it('succeeds when VSIX has an extension/ directory', async () => {
-    const { execFileSync } = await import('child_process');
     const zipContent = path.join(tmpDir, 'content');
     const extDir = path.join(zipContent, 'extension');
     fs.mkdirSync(extDir, { recursive: true });
@@ -94,7 +106,7 @@ describe('extractVsix', () => {
 
     const vsixPath = path.join(tmpDir, 'test.vsix');
     // Create zip preserving directory structure
-    execFileSync('zip', ['-r', vsixPath, '.'], { cwd: zipContent });
+    createZipSync(vsixPath, zipContent, ['.']);
 
     const targetDir = path.join(tmpDir, 'target');
     fs.mkdirSync(targetDir, { recursive: true });
