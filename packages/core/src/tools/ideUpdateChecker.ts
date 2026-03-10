@@ -164,18 +164,53 @@ export class IdeUpdateChecker implements vscode.Disposable {
             const backupPath = `${appPath}.bak`;
             const exeName = 'LunaIDE.exe';
 
+            const logPath = `${scriptPath}.log`;
             const script = [
                 `$ErrorActionPreference = 'Stop'`,
+                ``,
+                `# --- Logging ---`,
+                `$logPath = '${logPath}'`,
+                `Start-Transcript -Path $logPath -Force`,
+                `Write-Host "=== LunaIDE updater started at $(Get-Date) ==="`,
+                `Write-Host "PID=$PID  PPID=$((Get-Process -Id $PID).Parent.Id)"`,
+                ``,
                 `$appPath = '${appPath}'`,
                 `$updateDir = '${updateDir}'`,
                 `$zipPath = '${zipPath}'`,
                 `$backupPath = '${backupPath}'`,
                 `$exePath = Join-Path -Path $appPath -ChildPath '${exeName}'`,
                 ``,
-                `# Wait for the main app process to exit`,
-                `Start-Sleep -Seconds 3`,
+                `function Die($msg) {`,
+                `    Write-Host "FATAL: $msg"`,
+                `    Add-Type -AssemblyName System.Windows.Forms`,
+                `    [System.Windows.Forms.MessageBox]::Show($msg, 'LunaIDE Update Failed', 'OK', 'Error')`,
+                `    Stop-Transcript`,
+                `    Exit 1`,
+                `}`,
                 ``,
-                `# Extract the zip file`,
+                `Write-Host "APP=$appPath"`,
+                `Write-Host "EXE=$exePath"`,
+                ``,
+                `# --- 1. Wait for LunaIDE to fully quit ---`,
+                `Write-Host "Waiting for LunaIDE processes to exit..."`,
+                `for ($i = 1; $i -le 120; $i++) {`,
+                `    $procs = Get-Process -Name 'LunaIDE' -ErrorAction SilentlyContinue`,
+                `    if (-not $procs) {`,
+                `        Write-Host "All LunaIDE processes exited after $i iterations"`,
+                `        break`,
+                `    }`,
+                `    Start-Sleep -Milliseconds 500`,
+                `}`,
+                `# Force kill if still running after 60s`,
+                `$procs = Get-Process -Name 'LunaIDE' -ErrorAction SilentlyContinue`,
+                `if ($procs) {`,
+                `    Write-Host "Force killing all LunaIDE processes..."`,
+                `    $procs | Stop-Process -Force -ErrorAction SilentlyContinue`,
+                `    Start-Sleep -Seconds 2`,
+                `}`,
+                ``,
+                `# --- 2. Extract ---`,
+                `Write-Host "Extracting archive..."`,
                 `New-Item -ItemType Directory -Force -Path $updateDir | Out-Null`,
                 `Expand-Archive -Path $zipPath -DestinationPath $updateDir -Force`,
                 ``,
@@ -186,43 +221,62 @@ export class IdeUpdateChecker implements vscode.Disposable {
                 `    $extractedRoot = $subdirs[0].FullName`,
                 `}`,
                 ``,
-                `# Double check the exe exists in the extracted directory`,
+                `# --- 3. Validate exe exists in extracted directory ---`,
                 `$extractedExe = Join-Path -Path $extractedRoot -ChildPath '${exeName}'`,
                 `if (-not (Test-Path -Path $extractedExe -PathType Leaf)) {`,
-                `    # Try to find it anywhere`,
                 `    $foundExe = Get-ChildItem -Path $updateDir -Filter '${exeName}' -Recurse | Select-Object -First 1`,
                 `    if ($foundExe) {`,
                 `        $extractedRoot = $foundExe.DirectoryName`,
                 `    } else {`,
-                `        Write-Host "Update failed: ${exeName} not found in zip."`,
-                `        Exit 1`,
+                `        Die "${exeName} not found in downloaded package"`,
                 `    }`,
                 `}`,
+                `Write-Host "Found new app at: $extractedRoot"`,
                 ``,
-                `# Rename current app path to backup (this works even if some files are locked, as long as the dir isn't)`,
+                `# --- 4. Swap ---`,
+                `Write-Host "Swapping app directory..."`,
                 `if (Test-Path -Path $backupPath) { Remove-Item -Recurse -Force $backupPath -ErrorAction SilentlyContinue }`,
                 `Rename-Item -Path $appPath -NewName $backupPath -ErrorAction Stop`,
+                `try {`,
+                `    Move-Item -Path $extractedRoot -Destination $appPath -ErrorAction Stop`,
+                `} catch {`,
+                `    Write-Host "Move failed, restoring backup..."`,
+                `    Rename-Item -Path $backupPath -NewName $appPath -ErrorAction SilentlyContinue`,
+                `    Die "Could not place new app (restored backup): $_"`,
+                `}`,
+                `Write-Host "Swap complete"`,
                 ``,
-                `# Move the new files into place`,
-                `Move-Item -Path $extractedRoot -Destination $appPath -ErrorAction Stop`,
+                `# --- 5. Pre-launch sanity check ---`,
+                `if (-not (Test-Path -Path $exePath -PathType Leaf)) {`,
+                `    Die "Binary not found after swap: $exePath"`,
+                `}`,
+                `Write-Host "Binary validated: $exePath"`,
                 ``,
-                `# Start the newly installed app`,
+                `# --- 6. Relaunch ---`,
+                `Write-Host "Relaunching LunaIDE..."`,
                 `Start-Process -FilePath $exePath`,
+                `Write-Host "Launched LunaIDE"`,
                 ``,
-                `# Clean up`,
+                `# --- 7. Cleanup ---`,
+                `Start-Sleep -Seconds 5`,
                 `Remove-Item -Recurse -Force $backupPath -ErrorAction SilentlyContinue`,
                 `Remove-Item -Recurse -Force $updateDir -ErrorAction SilentlyContinue`,
                 `Remove-Item -Force $zipPath -ErrorAction SilentlyContinue`,
-                `Remove-Item -Force $PSCommandPath -ErrorAction SilentlyContinue`
+                `Write-Host "=== Update complete at $(Get-Date) ==="`,
+                `Stop-Transcript`,
+                `Remove-Item -Force $PSCommandPath -ErrorAction SilentlyContinue`,
             ].join('\r\n');
 
             fs.writeFileSync(scriptPath, script);
 
+            // Launch via a wrapper that uses Start-Process to create a fully
+            // independent process, similar to macOS launchctl approach.
             const child = spawn('powershell.exe', [
                 '-NoProfile',
                 '-ExecutionPolicy', 'Bypass',
                 '-WindowStyle', 'Hidden',
-                '-File', scriptPath
+                '-Command',
+                `Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','${scriptPath}' -WindowStyle Hidden`
             ], {
                 detached: true,
                 stdio: 'ignore'
@@ -232,49 +286,116 @@ export class IdeUpdateChecker implements vscode.Disposable {
         } else if (process.platform === 'darwin') {
             const scriptPath = path.join(os.tmpdir(), `lunaide-updater-${version}.sh`);
 
+            // Main binary name derived from the .app bundle
+            const appName = path.basename(appPath, '.app');
+            const jobLabel = `com.lunaide.updater.${version}`;
+
             const script = [
                 '#!/bin/bash',
-                `die() { osascript -e "display alert \\"LunaIDE update failed: $1\\""; exit 1; }`,
-                `BACKUP="${appPath}.bak"`,
-                `NEW_APP="${updateDir}/LunaIDE.app"`,
+                `set -ux`,
+                `LOG="${scriptPath}.log"`,
+                `exec > "$LOG" 2>&1`,
+                `echo "=== LunaIDE updater started at $(date) ==="`,
+                `echo "PID=$$  PPID=$PPID"`,
+                ``,
+                `die() { echo "FATAL: $1"; osascript -e "display alert \\"LunaIDE update failed\\" message \\"$1\\""; exit 1; }`,
+                ``,
                 `APP="${appPath}"`,
-                // Wait for the current process to exit
-                'sleep 2',
-                // Unzip
-                `mkdir -p "${updateDir}"          || die "Could not create temp directory"`,
-                `unzip -o "${zipPath}" -d "${updateDir}" > /dev/null 2>&1 || die "Failed to extract update archive"`,
-                // Find the .app (handle cases where it might be nested one level)
+                `BACKUP="${appPath}.bak"`,
+                `ZIP="${zipPath}"`,
+                `EXTRACT="${updateDir}"`,
+                `APP_BIN="$APP/Contents/MacOS/${appName}"`,
+                ``,
+                `echo "APP=$APP"`,
+                `echo "APP_BIN=$APP_BIN"`,
+                ``,
+                `# --- 1. Wait for the app to fully quit (pgrep on the .app bundle) ---`,
+                `echo "Waiting for LunaIDE processes to exit..."`,
+                `for i in $(seq 1 120); do`,
+                `  if ! pgrep -f "LunaIDE.app" >/dev/null 2>&1; then`,
+                `    echo "All LunaIDE processes exited after $i iterations"`,
+                `    break`,
+                `  fi`,
+                `  sleep 0.5`,
+                `done`,
+                `# If still running after 60s, force kill all processes matching the bundle`,
+                `if pgrep -f "LunaIDE.app" >/dev/null 2>&1; then`,
+                `  echo "Force killing all LunaIDE processes..."`,
+                `  pkill -9 -f "LunaIDE.app" || true`,
+                `  sleep 2`,
+                `fi`,
+                ``,
+                `# --- 2. Extract ---`,
+                `echo "Extracting archive..."`,
+                `mkdir -p "$EXTRACT" || die "Could not create temp directory"`,
+                `unzip -o "$ZIP" -d "$EXTRACT" > /dev/null 2>&1 || die "Failed to extract update archive"`,
+                ``,
+                `# Find the .app bundle (may be nested one level)`,
+                `NEW_APP="$EXTRACT/LunaIDE.app"`,
                 `if [ ! -d "$NEW_APP" ]; then`,
-                `  NEW_APP=$(find "${updateDir}" -maxdepth 2 -name "*.app" | head -1)`,
+                `  NEW_APP=$(find "$EXTRACT" -maxdepth 2 -name "*.app" -type d | head -1)`,
                 `fi`,
                 `if [ -z "$NEW_APP" ] || [ ! -d "$NEW_APP" ]; then`,
                 `  die ".app bundle not found in downloaded package"`,
                 `fi`,
-                // Swap: move old aside, copy new in
+                `echo "Found new app at: $NEW_APP"`,
+                ``,
+                `# --- 3. Swap ---`,
+                `echo "Swapping app bundle..."`,
                 `rm -rf "$BACKUP" 2>/dev/null || true`,
-                `mv "$APP" "$BACKUP"    || die "Could not move current app aside (check permissions)"`,
-                `cp -R "$NEW_APP" "$APP" || die "Could not copy new app into place (check disk space)"`,
-                // Re-codesign (ad-hoc) — required because the binary is patched
-                `xattr -cr "$APP" 2>/dev/null || true`,
-                `codesign --force --deep --sign - "$APP" 2>/dev/null || true`,
-                // Relaunch (use -n to force a new instance in case macOS still sees the old process)
-                `sleep 2`,
-                `open -n "$APP" || osascript -e 'display alert "Update installed successfully. Please open LunaIDE manually."'`,
-                // Cleanup
-                `rm -rf "$BACKUP" "${updateDir}" "${zipPath}" "${scriptPath}" 2>/dev/null || true`,
+                `mv "$APP" "$BACKUP" || die "Could not move current app aside (check permissions)"`,
+                `mv "$NEW_APP" "$APP" || { mv "$BACKUP" "$APP" 2>/dev/null; die "Could not place new app (restored backup)"; }`,
+                `echo "Swap complete"`,
+                ``,
+                `# --- 4. Re-codesign (ad-hoc, required for patched binaries) ---`,
+                `echo "Re-signing..."`,
+                `xattr -cr "$APP" || true`,
+                `codesign --force --deep --sign - "$APP" || echo "Warning: codesign failed"`,
+                ``,
+                `# --- 5. Pre-launch sanity check ---`,
+                `if [ ! -x "$APP_BIN" ]; then`,
+                `  die "Binary not found or not executable: $APP_BIN"`,
+                `fi`,
+                `echo "Binary validated: $APP_BIN"`,
+                ``,
+                `# --- 6. Relaunch ---`,
+                `touch "$APP"`,
+                `echo "Relaunching LunaIDE via open..."`,
+                `open "$APP"`,
+                `echo "open exit code: $?"`,
+                ``,
+                `# --- 7. Cleanup ---`,
+                `sleep 5`,
+                `rm -rf "$BACKUP" "$EXTRACT" "$ZIP" 2>/dev/null || true`,
+                `echo "=== Update complete at $(date) ==="`,
+                ``,
+                `# Remove the launchd job so it doesn't linger`,
+                `/bin/launchctl remove "${jobLabel}" 2>/dev/null || true`,
             ].join('\n');
 
             fs.writeFileSync(scriptPath, script, { mode: 0o755 });
 
-            // Spawn the script detached so it survives the app quitting; log to file for debugging
-            const logPath = path.join(os.tmpdir(), `lunaide-updater-${version}.log`);
-            const logFd = fs.openSync(logPath, 'w');
-            const child = spawn('bash', [scriptPath], { detached: true, stdio: ['ignore', logFd, logFd] });
+            // Fully detach the updater from Electron using launchctl.
+            // launchctl submit registers the script as a launchd job owned by
+            // PID 1 (launchd), so it has zero ties to Electron's process tree.
+            // The job label is unique per version to avoid collisions.
+            const child = spawn('/bin/launchctl', [
+                'submit', '-l', jobLabel, '--', '/bin/bash', scriptPath
+            ], {
+                stdio: 'ignore',
+                detached: true,
+            });
             child.unref();
         } else {
             vscode.window.showErrorMessage('Auto-update is not supported on this platform.');
             return;
         }
+
+        // Save all dirty documents to prevent the quit dialog from blocking exit
+        await vscode.workspace.saveAll(false);
+
+        // Give the double-fork a moment to complete before quitting
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Quit so the script can replace the .app / exe
         void vscode.commands.executeCommand('workbench.action.quit');
