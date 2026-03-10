@@ -24,7 +24,8 @@
     "watch": "node esbuild.mjs --watch",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies",
+    "test": "echo 'No tests yet'"
   },
   "contributes": {
     "configurationDefaults": {
