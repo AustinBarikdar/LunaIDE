@@ -260,23 +260,29 @@ export class RojoManager implements vscode.Disposable {
         return;
       }
       this.log(`Killing ${name} process (PID: ${proc.pid})`);
-      proc.once('exit', () => resolve());
-      proc.kill('SIGTERM');
-      // Force kill after 3 seconds if still alive
-      setTimeout(() => {
-        if (proc && !proc.killed) {
-          if (process.platform === 'win32') {
-            try {
-              const { execSync } = require('child_process');
-              execSync(`taskkill /PID ${proc.pid} /T /F`);
-            } catch {
-              proc.kill();
+      const forceKillTimer = setTimeout(() => {
+        try {
+          if (proc.exitCode === null && !proc.killed) {
+            if (process.platform === 'win32') {
+              try {
+                const { execSync } = require('child_process');
+                execSync(`taskkill /PID ${proc.pid} /T /F`);
+              } catch {
+                proc.kill();
+              }
+            } else {
+              proc.kill('SIGKILL');
             }
-          } else {
-            proc.kill('SIGKILL');
           }
+        } catch {
+          // Process already dead
         }
       }, 3000);
+      proc.once('exit', () => {
+        clearTimeout(forceKillTimer);
+        resolve();
+      });
+      proc.kill('SIGTERM');
     });
   }
 
@@ -325,7 +331,8 @@ export class RojoManager implements vscode.Disposable {
   }
 
   dispose(): void {
-    this.stop();
-    this.disposables.forEach((d) => d.dispose());
+    void this.stop().finally(() => {
+      this.disposables.forEach((d) => d.dispose());
+    });
   }
 }

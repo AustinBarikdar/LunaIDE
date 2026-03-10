@@ -95,7 +95,11 @@ export class ToolUpdateChecker implements vscode.Disposable {
     // Register the command if not already registered
     if (!this.statusBarItems.has(tool.id)) {
       const disposable = vscode.commands.registerCommand(commandId, () => {
-        this.promptUpdate(tool, installed, latest);
+        // Look up current values to avoid stale closure captures
+        const current = this.availableUpdates.get(tool.id);
+        if (current) {
+          this.promptUpdate(current.tool, current.installed, current.latest);
+        }
       });
       this.disposables.push(disposable);
     }
@@ -349,30 +353,34 @@ function readJsonResponse(res: import('http').IncomingMessage): Promise<string |
 }
 
 export async function getLatestGitHubRelease(repo: string, context?: vscode.ExtensionContext): Promise<string | undefined> {
-  return new Promise(async (resolve) => {
-    let authHeader: string | undefined;
+  let authHeader: string | undefined;
+  try {
     if (context) {
       const token = await context.secrets.get('lunaide.githubToken');
       if (token) {
         authHeader = `Bearer ${token}`;
       }
     }
+  } catch {
+    // If secrets access fails, continue without auth
+  }
 
-    // For Rojo, we want to capture pre-releases (e.g., 7.7.0-rc.1), so we fetch all releases.
-    // For others, latest is usually fine, but fetching /releases works for both to get the absolute newest tag.
-    const path = repo === 'rojo-rbx/rojo' ? `/repos/${repo}/releases` : `/repos/${repo}/releases/latest`;
+  // For Rojo, we want to capture pre-releases (e.g., 7.7.0-rc.1), so we fetch all releases.
+  // For others, latest is usually fine, but fetching /releases works for both to get the absolute newest tag.
+  const apiPath = repo === 'rojo-rbx/rojo' ? `/repos/${repo}/releases` : `/repos/${repo}/releases/latest`;
 
-    const options: https.RequestOptions = {
-      hostname: 'api.github.com',
-      path,
-      headers: {
-        'User-Agent': 'LunaIDE',
-        Accept: 'application/vnd.github.v3+json',
-        ...(authHeader ? { Authorization: authHeader } : {})
-      },
-      timeout: 10000,
-    };
+  const options: https.RequestOptions = {
+    hostname: 'api.github.com',
+    path: apiPath,
+    headers: {
+      'User-Agent': 'LunaIDE',
+      Accept: 'application/vnd.github.v3+json',
+      ...(authHeader ? { Authorization: authHeader } : {})
+    },
+    timeout: 10000,
+  };
 
+  return new Promise((resolve) => {
     const req = https.get(options, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
         const location = res.headers.location;

@@ -288,7 +288,6 @@ export class IdeUpdateChecker implements vscode.Disposable {
 
             // Main binary name derived from the .app bundle
             const appName = path.basename(appPath, '.app');
-            const jobLabel = `com.lunaide.updater.${version}`;
 
             const script = [
                 '#!/bin/bash',
@@ -368,20 +367,14 @@ export class IdeUpdateChecker implements vscode.Disposable {
                 `sleep 5`,
                 `rm -rf "$BACKUP" "$EXTRACT" "$ZIP" 2>/dev/null || true`,
                 `echo "=== Update complete at $(date) ==="`,
-                ``,
-                `# Remove the launchd job so it doesn't linger`,
-                `/bin/launchctl remove "${jobLabel}" 2>/dev/null || true`,
             ].join('\n');
 
             fs.writeFileSync(scriptPath, script, { mode: 0o755 });
 
-            // Fully detach the updater from Electron using launchctl.
-            // launchctl submit registers the script as a launchd job owned by
-            // PID 1 (launchd), so it has zero ties to Electron's process tree.
-            // The job label is unique per version to avoid collisions.
-            const child = spawn('/bin/launchctl', [
-                'submit', '-l', jobLabel, '--', '/bin/bash', scriptPath
-            ], {
+            // Fully detach the updater from Electron using a detached spawn.
+            // detached: true + unref() creates a process that survives the
+            // parent's exit, equivalent to nohup but without requiring it.
+            const child = spawn('/bin/bash', [scriptPath], {
                 stdio: 'ignore',
                 detached: true,
             });
@@ -503,6 +496,7 @@ function downloadFile(url: string, dest: string, token?: string, onProgress?: (p
                     received += chunk.length;
                     if (total > 0) onProgress?.((received / total) * 100);
                 });
+                res.on('error', reject);
                 res.pipe(file);
                 file.on('finish', () => { file.close(); resolve(); });
                 file.on('error', reject);

@@ -9,6 +9,7 @@ import { SessionManager } from '../sessions/sessionManager.js';
 import { LuauClient } from '../luau/luauClient.js';
 import { StudioManager } from '../studio/studioManager.js';
 import { OpenCloudClient } from '../opencloud/openCloudClient.js';
+import { searchLines } from './searchLines.js';
 
 interface BridgeResponse {
     success: boolean;
@@ -80,7 +81,13 @@ export class BridgeServer implements vscode.Disposable {
     async start(): Promise<void> {
         return new Promise((resolve, reject) => {
             this.server = http.createServer((req, res) => {
-                this.handleRequest(req, res);
+                void this.handleRequest(req, res).catch((err) => {
+                    this.log(`Unhandled request error: ${err instanceof Error ? err.message : String(err)}`);
+                    if (!res.headersSent) {
+                        res.statusCode = 500;
+                        res.end(JSON.stringify({ success: false, error: 'Internal server error' }));
+                    }
+                });
             });
 
             // Listen on random available port
@@ -176,7 +183,10 @@ export class BridgeServer implements vscode.Disposable {
     // --- Script handlers ---
 
     private async handleReadScript(body: Record<string, unknown>): Promise<BridgeResponse> {
-        const filePath = this.resolvePath(body.filePath as string);
+        if (typeof body.filePath !== 'string' || !body.filePath) {
+            return { success: false, error: 'Missing or invalid filePath' };
+        }
+        const filePath = this.resolvePath(body.filePath);
 
         // 1. Try to read from Studio first if it's connected
         const studioId = this.studioManager.getFirstStudioId();
@@ -206,8 +216,14 @@ export class BridgeServer implements vscode.Disposable {
     }
 
     private async handleWriteScript(body: Record<string, unknown>): Promise<BridgeResponse> {
-        const filePath = this.resolvePath(body.filePath as string);
-        const content = body.content as string;
+        if (typeof body.filePath !== 'string' || !body.filePath) {
+            return { success: false, error: 'Missing or invalid filePath' };
+        }
+        if (typeof body.content !== 'string') {
+            return { success: false, error: 'Missing or invalid content' };
+        }
+        const filePath = this.resolvePath(body.filePath);
+        const content = body.content;
         const description = (body.description as string) || `Write to ${path.basename(filePath)}`;
 
         // Snapshot before writing
@@ -246,7 +262,6 @@ export class BridgeServer implements vscode.Disposable {
         const includeGlob = body.include as string | undefined;
 
         const results: Array<{ file: string; line: number; text: string }> = [];
-        const pattern = isRegex ? new RegExp(query, 'gm') : null;
 
         const walkDir = (dir: string) => {
             const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -275,14 +290,9 @@ export class BridgeServer implements vscode.Disposable {
                     try {
                         const content = fs.readFileSync(fullPath, 'utf-8');
                         const lines = content.split('\n');
-                        for (let i = 0; i < lines.length; i++) {
-                            const match = pattern
-                                ? pattern.test(lines[i])
-                                : lines[i].includes(query);
-                            if (match) {
-                                results.push({ file: normalizedRelPath, line: i + 1, text: lines[i].trim() });
-                            }
-                            if (pattern) pattern.lastIndex = 0; // Reset regex state
+                        const lineResults = searchLines(lines, query, !!isRegex);
+                        for (const r of lineResults) {
+                            results.push({ file: normalizedRelPath, line: r.line, text: r.text });
                         }
                     } catch {
                         // Skip unreadable files
@@ -829,7 +839,10 @@ export class BridgeServer implements vscode.Disposable {
 
     private async handlePublishPlace(body: Record<string, unknown>): Promise<BridgeResponse> {
         try {
-            const filePath = this.resolvePath(body.filePath as string);
+            if (typeof body.filePath !== 'string' || !body.filePath) {
+                return { success: false, error: 'Missing or invalid filePath' };
+            }
+            const filePath = this.resolvePath(body.filePath);
             if (!fs.existsSync(filePath)) {
                 return { success: false, error: `File not found: ${filePath}` };
             }
@@ -1163,6 +1176,7 @@ Write-Output "${filePath}"
     dispose(): void {
         this.removePortFile();
         if (this.server) {
+            this.server.closeAllConnections();
             this.server.close();
             this.server = null;
         }

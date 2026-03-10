@@ -110,7 +110,8 @@ export class ExplorerTreeView implements vscode.TreeDataProvider<ExplorerTreeIte
             }
 
             return this.rojoNodeToItems(node, element.instancePath);
-        } catch {
+        } catch (err) {
+            console.warn(`[LunaIDE] Failed to parse ${ROJO_PROJECT_FILE}: ${err instanceof Error ? err.message : String(err)}`);
             return [];
         }
     }

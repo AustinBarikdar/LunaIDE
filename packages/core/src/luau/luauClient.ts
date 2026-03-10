@@ -211,7 +211,8 @@ export class LuauClient implements vscode.Disposable {
   }
 
   dispose(): void {
-    void this.stop();
-    this.disposables.forEach((d) => d.dispose());
+    void this.stop().finally(() => {
+      this.disposables.forEach((d) => d.dispose());
+    });
   }
 }

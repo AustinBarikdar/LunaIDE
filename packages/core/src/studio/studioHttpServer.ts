@@ -27,7 +27,13 @@ export class StudioHttpServer implements vscode.Disposable {
 
         return new Promise((resolve, reject) => {
             this.server = http.createServer((req, res) => {
-                this.handleRequest(req, res);
+                void this.handleRequest(req, res).catch((err) => {
+                    this.log(`Unhandled request error: ${err instanceof Error ? err.message : String(err)}`);
+                    if (!res.headersSent) {
+                        res.statusCode = 500;
+                        res.end(JSON.stringify({ success: false, error: 'Internal server error' }));
+                    }
+                });
             });
 
             this.server.listen(port, '127.0.0.1', () => {
@@ -38,6 +44,7 @@ export class StudioHttpServer implements vscode.Disposable {
             this.server.on('error', (err: NodeJS.ErrnoException) => {
                 if (err.code === 'EADDRINUSE') {
                     this.log(`Port ${port} is already in use — Studio server may already be running`);
+                    this.server = null; // Clear failed server reference to prevent dispose() from throwing
                     resolve(); // Non-fatal
                 } else {
                     this.log(`Studio server error: ${err.message}`);

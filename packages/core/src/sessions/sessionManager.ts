@@ -97,17 +97,21 @@ export class SessionManager implements vscode.Disposable {
     }
 
     private async onDidSave(doc: vscode.TextDocument): Promise<void> {
-        if (doc.uri.scheme !== 'file') return;
+        try {
+            if (doc.uri.scheme !== 'file') return;
 
-        const pending = this.pendingChanges.get(doc.uri.fsPath);
-        if (!pending) return;
-        this.pendingChanges.delete(doc.uri.fsPath);
+            const pending = this.pendingChanges.get(doc.uri.fsPath);
+            if (!pending) return;
+            this.pendingChanges.delete(doc.uri.fsPath);
 
-        const after = doc.getText();
-        if (pending.before === after) return; // No actual change
+            const after = doc.getText();
+            if (pending.before === after) return; // No actual change
 
-        const changes: FileChange[] = [{ filePath: doc.uri.fsPath, before: pending.before, after }];
-        await this.createSnapshot(`Saved ${doc.fileName}`, changes);
+            const changes: FileChange[] = [{ filePath: doc.uri.fsPath, before: pending.before, after }];
+            await this.createSnapshot(`Saved ${doc.fileName}`, changes);
+        } catch (err) {
+            this.log(`Snapshot failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
     }
 
     private log(message: string): void {

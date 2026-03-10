@@ -120,6 +120,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (c === 'Open Setup') void SetupPanel.createOrShow(context);
         });
       }
+    }).catch(() => {
+      // Setup check failed — non-critical, ignore silently
     });
   }
 
@@ -210,8 +212,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => detectPlaces(workspaceFolder!),
         () => context.workspaceState.get<string>('lunaide.activePlace'),
       );
-      vscode.window.registerTreeDataProvider('robloxIde.places', placesTreeProvider);
-      context.subscriptions.push(placesTreeProvider);
+      context.subscriptions.push(
+        vscode.window.registerTreeDataProvider('robloxIde.places', placesTreeProvider),
+        placesTreeProvider
+      );
     }
 
     void rojoManager.start();
@@ -224,8 +228,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(sessionManager);
 
     sessionTreeView = new SessionTreeView(sessionManager.getStore());
-    vscode.window.registerTreeDataProvider('robloxIde.sessionHistory', sessionTreeView);
-    context.subscriptions.push(sessionTreeView);
+    context.subscriptions.push(
+      vscode.window.registerTreeDataProvider('robloxIde.sessionHistory', sessionTreeView),
+      sessionTreeView
+    );
 
     studioHttpServer = new StudioHttpServer(studioManager);
     context.subscriptions.push(studioHttpServer);
@@ -235,8 +241,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(openCloudClient);
 
     explorerTreeView = new ExplorerTreeView(workspaceFolder, studioManager);
-    vscode.window.registerTreeDataProvider('robloxIde.explorer', explorerTreeView);
-    context.subscriptions.push(explorerTreeView);
+    context.subscriptions.push(
+      vscode.window.registerTreeDataProvider('robloxIde.explorer', explorerTreeView),
+      explorerTreeView
+    );
 
     propertyInspector = new PropertyInspectorPanel(studioManager);
     context.subscriptions.push(propertyInspector);

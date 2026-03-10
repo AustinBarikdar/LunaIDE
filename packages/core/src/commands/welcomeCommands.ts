@@ -81,8 +81,17 @@ export function registerWelcomeCommands(context: vscode.ExtensionContext) {
                 const oldSrc = path.join(ws, 'src');
                 if (fs.existsSync(oldSrc)) {
                     const newSrc = path.join(placeDir, 'src');
-                    // Windows might require a rename/move
-                    fs.renameSync(oldSrc, newSrc);
+                    try {
+                        fs.renameSync(oldSrc, newSrc);
+                    } catch (renameErr: any) {
+                        if (renameErr.code === 'EXDEV') {
+                            // Cross-device move: copy then delete
+                            fs.cpSync(oldSrc, newSrc, { recursive: true });
+                            fs.rmSync(oldSrc, { recursive: true, force: true });
+                        } else {
+                            throw renameErr;
+                        }
+                    }
                 }
 
                 // Generate Meta-files

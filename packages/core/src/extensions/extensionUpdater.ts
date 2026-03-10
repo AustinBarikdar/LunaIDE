@@ -84,15 +84,7 @@ export class ExtensionUpdater {
         const extensionsDir = path.join(os.homedir(), '.lunaide', 'extensions');
         fs.mkdirSync(extensionsDir, { recursive: true });
 
-        // Remove old version folder(s)
-        const prefix = `${ext.publisher.toLowerCase()}.${ext.name.toLowerCase()}-`;
-        for (const entry of fs.readdirSync(extensionsDir)) {
-            if (entry.toLowerCase().startsWith(prefix)) {
-                fs.rmSync(path.join(extensionsDir, entry), { recursive: true, force: true });
-            }
-        }
-
-        // Download VSIX — try platform-specific first, then generic
+        // Validate download URL BEFORE removing old version
         const vsixNamePlatform = `${ext.publisher}.${ext.name}-${latestVersion}@${ext.platform}.vsix`;
         const vsixNameGeneric  = `${ext.publisher}.${ext.name}-${latestVersion}.vsix`;
 
@@ -113,8 +105,17 @@ export class ExtensionUpdater {
             throw new Error(`Could not find VSIX download for ${ext.id} v${latestVersion}`);
         }
 
+        // Download to temp file before removing old version
         const tmpFile = path.join(os.tmpdir(), vsixName);
         await downloadFile(downloadUrl, tmpFile);
+
+        // Only remove old version folder(s) after successful download
+        const prefix = `${ext.publisher.toLowerCase()}.${ext.name.toLowerCase()}-`;
+        for (const entry of fs.readdirSync(extensionsDir)) {
+            if (entry.toLowerCase().startsWith(prefix)) {
+                fs.rmSync(path.join(extensionsDir, entry), { recursive: true, force: true });
+            }
+        }
 
         // Extract VSIX (ZIP) — the extension lives in the "extension/" subfolder
         const targetDir = path.join(
@@ -138,7 +139,7 @@ async function downloadFile(url: string, dest: string): Promise<void> {
     fs.writeFileSync(dest, buffer);
 }
 
-function extractVsix(vsixPath: string, targetDir: string): Promise<void> {
+export function extractVsix(vsixPath: string, targetDir: string): Promise<void> {
     return new Promise((resolve, reject) => {
         // VSIX is a ZIP. Contents are under an "extension/" subdirectory.
         const tmpExtract = vsixPath + '_extract';
@@ -146,6 +147,10 @@ function extractVsix(vsixPath: string, targetDir: string): Promise<void> {
             const extSrc = path.join(tmpExtract, 'extension');
             if (fs.existsSync(extSrc)) {
                 copyDir(extSrc, targetDir);
+            } else {
+                fs.rmSync(tmpExtract, { recursive: true, force: true });
+                reject(new Error('No extension/ directory found in VSIX — malformed package'));
+                return;
             }
             fs.rmSync(tmpExtract, { recursive: true, force: true });
             resolve();

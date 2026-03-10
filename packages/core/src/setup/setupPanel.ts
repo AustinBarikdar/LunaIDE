@@ -385,7 +385,7 @@ export class SetupPanel implements vscode.Disposable {
                 if (fs.existsSync(linkPath)) fs.unlinkSync(linkPath);
                 fs.symlinkSync(appBin, linkPath);
                 vscode.window.showInformationMessage(
-                    `Installed: ${linkPath}\\nOpen a new terminal and type "lunaide ." to open a project.`
+                    `Installed: ${linkPath} — Open a new terminal and type "lunaide ." to open a project.`
                 );
                 this._refresh();
                 return;
@@ -506,7 +506,7 @@ export class SetupPanel implements vscode.Disposable {
                     : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cca700" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
 
             const actionBtn = item.actionCommand ? `
-                <button class="action-btn" onclick="send('${item.actionCommand}')">${escapeHtml(item.actionLabel ?? '')}</button>
+                <button class="action-btn" onclick="send('${escapeHtml(item.actionCommand)}')">${escapeHtml(item.actionLabel ?? '')}</button>
             ` : '';
 
             return `
@@ -528,10 +528,10 @@ export class SetupPanel implements vscode.Disposable {
                     : `<span class="agent-badge badge-dim">Not installed</span>`;
 
             const primaryBtn = `<button class="action-btn${agent.configured ? ' action-btn-secondary' : ''}"
-                onclick="send('configureAgent','${agent.id}')">${agent.configured ? 'Reconfigure' : 'Configure'}</button>`;
+                onclick="send('configureAgent','${escapeHtml(agent.id)}')">${agent.configured ? 'Reconfigure' : 'Configure'}</button>`;
 
             const openBtn = agent.configured ? `
-                <button class="action-btn action-btn-ghost" onclick="send('openAgentConfig','${agent.id}')">Open config</button>
+                <button class="action-btn action-btn-ghost" onclick="send('openAgentConfig','${escapeHtml(agent.id)}')">Open config</button>
             ` : '';
 
             return `
