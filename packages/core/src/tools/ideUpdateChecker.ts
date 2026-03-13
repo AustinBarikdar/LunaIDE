@@ -160,131 +160,230 @@ export class IdeUpdateChecker implements vscode.Disposable {
         const updateDir = path.join(os.tmpdir(), `lunaide-update-${version}`);
 
         if (process.platform === 'win32') {
-            const scriptPath = path.join(os.tmpdir(), `lunaide-updater-${version}.ps1`);
+            const scriptPath = path.join(os.tmpdir(), `lunaide-updater-${version}.js`);
             const backupPath = `${appPath}.bak`;
             const exeName = 'LunaIDE.exe';
-
             const logPath = `${scriptPath}.log`;
-            const script = [
-                `$ErrorActionPreference = 'Stop'`,
-                ``,
-                `# --- Logging ---`,
-                `$logPath = '${logPath}'`,
-                `Start-Transcript -Path $logPath -Force`,
-                `Write-Host "=== LunaIDE updater started at $(Get-Date) ==="`,
-                `Write-Host "PID=$PID  PPID=$((Get-Process -Id $PID).Parent.Id)"`,
-                ``,
-                `$appPath = '${appPath}'`,
-                `$updateDir = '${updateDir}'`,
-                `$zipPath = '${zipPath}'`,
-                `$backupPath = '${backupPath}'`,
-                `$exePath = Join-Path -Path $appPath -ChildPath '${exeName}'`,
-                ``,
-                `function Die($msg) {`,
-                `    Write-Host "FATAL: $msg"`,
-                `    Add-Type -AssemblyName System.Windows.Forms`,
-                `    [System.Windows.Forms.MessageBox]::Show($msg, 'LunaIDE Update Failed', 'OK', 'Error')`,
-                `    Stop-Transcript`,
-                `    Exit 1`,
-                `}`,
-                ``,
-                `Write-Host "APP=$appPath"`,
-                `Write-Host "EXE=$exePath"`,
-                ``,
-                `# --- 1. Wait for LunaIDE to fully quit ---`,
-                `Write-Host "Waiting for LunaIDE processes to exit..."`,
-                `for ($i = 1; $i -le 120; $i++) {`,
-                `    $procs = Get-Process -Name 'LunaIDE' -ErrorAction SilentlyContinue`,
-                `    if (-not $procs) {`,
-                `        Write-Host "All LunaIDE processes exited after $i iterations"`,
-                `        break`,
-                `    }`,
-                `    Start-Sleep -Milliseconds 500`,
-                `}`,
-                `# Force kill if still running after 60s`,
-                `$procs = Get-Process -Name 'LunaIDE' -ErrorAction SilentlyContinue`,
-                `if ($procs) {`,
-                `    Write-Host "Force killing all LunaIDE processes..."`,
-                `    $procs | Stop-Process -Force -ErrorAction SilentlyContinue`,
-                `    Start-Sleep -Seconds 2`,
-                `}`,
-                ``,
-                `# --- 2. Extract ---`,
-                `Write-Host "Extracting archive..."`,
-                `New-Item -ItemType Directory -Force -Path $updateDir | Out-Null`,
-                `Expand-Archive -Path $zipPath -DestinationPath $updateDir -Force`,
-                ``,
-                `# Find the extracted root (sometimes zips contain a single root folder)`,
-                `$extractedRoot = $updateDir`,
-                `$subdirs = Get-ChildItem -Path $updateDir -Directory`,
-                `if ($subdirs.Count -eq 1 -and (Get-ChildItem -Path $updateDir -File).Count -eq 0) {`,
-                `    $extractedRoot = $subdirs[0].FullName`,
-                `}`,
-                ``,
-                `# --- 3. Validate exe exists in extracted directory ---`,
-                `$extractedExe = Join-Path -Path $extractedRoot -ChildPath '${exeName}'`,
-                `if (-not (Test-Path -Path $extractedExe -PathType Leaf)) {`,
-                `    $foundExe = Get-ChildItem -Path $updateDir -Filter '${exeName}' -Recurse | Select-Object -First 1`,
-                `    if ($foundExe) {`,
-                `        $extractedRoot = $foundExe.DirectoryName`,
-                `    } else {`,
-                `        Die "${exeName} not found in downloaded package"`,
-                `    }`,
-                `}`,
-                `Write-Host "Found new app at: $extractedRoot"`,
-                ``,
-                `# --- 4. Swap ---`,
-                `Write-Host "Swapping app directory..."`,
-                `if (Test-Path -Path $backupPath) { Remove-Item -Recurse -Force $backupPath -ErrorAction SilentlyContinue }`,
-                `Rename-Item -Path $appPath -NewName $backupPath -ErrorAction Stop`,
-                `try {`,
-                `    Move-Item -Path $extractedRoot -Destination $appPath -ErrorAction Stop`,
-                `} catch {`,
-                `    Write-Host "Move failed, restoring backup..."`,
-                `    Rename-Item -Path $backupPath -NewName $appPath -ErrorAction SilentlyContinue`,
-                `    Die "Could not place new app (restored backup): $_"`,
-                `}`,
-                `Write-Host "Swap complete"`,
-                ``,
-                `# --- 5. Pre-launch sanity check ---`,
-                `if (-not (Test-Path -Path $exePath -PathType Leaf)) {`,
-                `    Die "Binary not found after swap: $exePath"`,
-                `}`,
-                `Write-Host "Binary validated: $exePath"`,
-                ``,
-                `# --- 6. Relaunch ---`,
-                `Write-Host "Relaunching LunaIDE..."`,
-                `$env:ELECTRON_RUN_AS_NODE=$null`,
-                `$env:VSCODE_IPC_HOOK=$null`,
-                `$env:VSCODE_IPC_HOOK_EXTHOST=$null`,
-                `Start-Process -FilePath $exePath`,
-                `Write-Host "Launched LunaIDE"`,
-                ``,
-                `# --- 7. Cleanup ---`,
-                `Start-Sleep -Seconds 5`,
-                `Remove-Item -Recurse -Force $backupPath -ErrorAction SilentlyContinue`,
-                `Remove-Item -Recurse -Force $updateDir -ErrorAction SilentlyContinue`,
-                `Remove-Item -Force $zipPath -ErrorAction SilentlyContinue`,
-                `Write-Host "=== Update complete at $(Get-Date) ==="`,
-                `Stop-Transcript`,
-                `Remove-Item -Force $PSCommandPath -ErrorAction SilentlyContinue`,
-            ].join('\r\n');
+            const ppid = process.pid;
+
+            // We generate a tiny Node.js script. It must run from outside appPath to avoid Windows file lock conflicts.
+            const script = `
+const fs = require('fs');
+const path = require('path');
+const { spawn, execSync, spawnSync } = require('child_process');
+
+const logPath = ${JSON.stringify(logPath)};
+function log(msg) {
+    fs.appendFileSync(logPath, msg + '\\n');
+}
+function die(msg) {
+    log('FATAL: ' + msg);
+    const vbs = path.join(process.env.TMP || process.env.TEMP, 'lunaide-die.vbs');
+    fs.writeFileSync(vbs, 'MsgBox "' + msg + '", 16, "LunaIDE Update Failed"');
+    execSync('wscript.exe "' + vbs + '"');
+    try { fs.unlinkSync(vbs); } catch(e) {}
+    process.exit(1);
+}
+
+log('=== LunaIDE updater started at ' + new Date().toISOString() + ' ===');
+log('PID=' + process.pid + '  PPID=' + ${ppid});
+
+const appPath = ${JSON.stringify(appPath)};
+const updateDir = ${JSON.stringify(updateDir)};
+const zipPath = ${JSON.stringify(zipPath)};
+const backupPath = ${JSON.stringify(backupPath)};
+const exePath = path.join(appPath, ${JSON.stringify(exeName)});
+const ppid = ${ppid};
+
+log('APP=' + appPath);
+log('EXE=' + exePath);
+
+function isProcessRunning(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function killProcessesFromAppDir() {
+    try {
+        const psAppPath = appPath.replace(/'/g, "''");
+        const psScript = "$app='" + psAppPath + "'; " +
+            "Get-CimInstance Win32_Process | " +
+            "Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($app, [System.StringComparison]::OrdinalIgnoreCase) } | " +
+            "ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {} }";
+        spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript], {
+            stdio: 'ignore',
+            windowsHide: true
+        });
+    } catch (e) {
+        log('Warning: process cleanup failed: ' + (e && e.message ? e.message : String(e)));
+    }
+}
+
+async function run() {
+    // Ensure this updater process is not "inside" appPath, otherwise Windows can block renames.
+    try { process.chdir(path.dirname(appPath)); } catch (e) {}
+
+    // 1. Wait for parent IDE process to quit
+    log('Waiting for LunaIDE (PID ' + ppid + ') to exit...');
+    for (let i = 0; i < 120; i++) {
+        if (!isProcessRunning(ppid)) {
+            log('LunaIDE process exited.');
+            break;
+        }
+        await new Promise(r => setTimeout(r, 1000));
+    }
+
+    // Force kill if it's still alive
+    if (isProcessRunning(ppid)) {
+        log('Force killing PID ' + ppid);
+        try { execSync('taskkill /PID ' + ppid + ' /T /F', { stdio: 'ignore' }); } catch(e) {}
+        try { process.kill(ppid, 'SIGKILL'); } catch(e) {}
+        await new Promise(r => setTimeout(r, 2000));
+    }
+
+    // Kill any straggler helper processes loaded from the current app directory.
+    killProcessesFromAppDir();
+    await new Promise(r => setTimeout(r, 1000));
+
+    // 2. Extract
+    log('Extracting archive...');
+    try {
+        fs.mkdirSync(updateDir, { recursive: true });
+        // Use powershell Expand-Archive as it's built-in on Windows 10+
+        execSync(\`powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '\${zipPath}' -DestinationPath '\${updateDir}' -Force"\`);
+    } catch (err) {
+        die('Failed to extract update archive: ' + err.message);
+    }
+
+    // Find extracted root
+    let extractedRoot = updateDir;
+    let dirs = fs.readdirSync(updateDir).map(n => path.join(updateDir, n));
+    if (dirs.length === 1 && fs.statSync(dirs[0]).isDirectory() && !fs.existsSync(path.join(updateDir, ${JSON.stringify(exeName)}))) {
+        extractedRoot = dirs[0];
+    }
+
+    // Deep search if not found
+    if (!fs.existsSync(path.join(extractedRoot, ${JSON.stringify(exeName)}))) {
+        function findExe(dir) {
+            const files = fs.readdirSync(dir);
+            for (const f of files) {
+                const p = path.join(dir, f);
+                if (fs.statSync(p).isDirectory()) {
+                    const found = findExe(p);
+                    if (found) return found;
+                } else if (f.toLowerCase() === ${JSON.stringify(exeName.toLowerCase())}) {
+                    return dir;
+                }
+            }
+            return null;
+        }
+        const found = findExe(updateDir);
+        if (found) extractedRoot = found;
+        else die(${JSON.stringify(exeName)} + ' not found in downloaded package');
+    }
+    log('Found new app at: ' + extractedRoot);
+
+    // 3. Swap
+    log('Swapping app directory...');
+    try {
+        if (fs.existsSync(backupPath)) fs.rmSync(backupPath, { recursive: true, force: true });
+
+        let retries = 20;
+        while(retries > 0) {
+            try {
+                fs.renameSync(appPath, backupPath);
+                break;
+            } catch(e) {
+                killProcessesFromAppDir();
+                if (--retries === 0) throw e;
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+    } catch (err) {
+        die('Could not move current app aside (still locked by another process): ' + err.message);
+    }
+
+    try {
+        fs.renameSync(extractedRoot, appPath);
+    } catch (err) {
+        log('Move failed, restoring backup...');
+        try { fs.renameSync(backupPath, appPath); } catch(e) {}
+        die('Could not place new app (restored backup): ' + err.message);
+    }
+    log('Swap complete');
+
+    // 4. Pre-launch sanity check
+    if (!fs.existsSync(exePath)) die('Binary not found after swap: ' + exePath);
+    log('Binary validated: ' + exePath);
+
+    // 5. Cleanup
+    log('Cleaning up...');
+    try { fs.rmSync(backupPath, { recursive: true, force: true }); } catch(e) {}
+    try { fs.rmSync(updateDir, { recursive: true, force: true }); } catch(e) {}
+    try { fs.unlinkSync(zipPath); } catch(e) {}
+
+    // 6. Relaunch
+    log('Relaunching LunaIDE...');
+    const env = Object.assign({}, process.env);
+    delete env.ELECTRON_RUN_AS_NODE;
+    delete env.VSCODE_IPC_HOOK;
+    delete env.VSCODE_IPC_HOOK_EXTHOST;
+
+    const child = spawn(exePath, [], {
+        detached: true,
+        stdio: 'ignore',
+        env
+    });
+    child.unref();
+
+    log('=== Update complete ===');
+    try { fs.unlinkSync(__filename); } catch(e) {}
+    process.exit(0);
+}
+
+run().catch(e => die('Unexpected error: ' + e.message));
+`;
 
             fs.writeFileSync(scriptPath, script);
 
-            // Launch via a wrapper that uses Start-Process to create a fully
-            // independent process, similar to macOS launchctl approach.
-            const child = spawn('powershell.exe', [
-                '-NoProfile',
-                '-ExecutionPolicy', 'Bypass',
-                '-WindowStyle', 'Hidden',
-                '-Command',
-                `Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','${scriptPath}' -WindowStyle Hidden`
-            ], {
-                detached: true,
-                stdio: 'ignore'
-            });
-            child.unref();
+            const nodeHostPath = await findExternalWindowsNodeHost(appPath);
+            if (nodeHostPath) {
+                const child = spawn(nodeHostPath, [scriptPath], {
+                    detached: true,
+                    stdio: 'ignore',
+                    windowsHide: true,
+                    cwd: os.tmpdir(),
+                    env: {
+                        ...process.env,
+                    }
+                });
+                child.unref();
+            } else {
+                const psScriptPath = path.join(os.tmpdir(), `lunaide-updater-${version}.ps1`);
+                const psLogPath = `${psScriptPath}.log`;
+                const psScript = buildWindowsPowerShellUpdaterScript({
+                    appPath,
+                    updateDir,
+                    zipPath,
+                    backupPath,
+                    exeName,
+                    ppid,
+                    logPath: psLogPath,
+                });
+                fs.writeFileSync(psScriptPath, psScript, 'utf8');
+
+                const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psScriptPath], {
+                    detached: true,
+                    stdio: 'ignore',
+                    windowsHide: true,
+                    cwd: os.tmpdir(),
+                });
+                child.unref();
+            }
 
         } else if (process.platform === 'darwin') {
             const scriptPath = path.join(os.tmpdir(), `lunaide-updater-${version}.sh`);
@@ -419,6 +518,170 @@ function getAppBundlePath(): string | undefined {
         return path.dirname(process.execPath);
     }
     return undefined;
+}
+
+async function findExternalWindowsNodeHost(appPath: string): Promise<string | undefined> {
+    const candidates = new Set<string>();
+    const addCandidate = (candidate: string | undefined) => {
+        if (!candidate) return;
+        const trimmed = candidate.trim();
+        if (!trimmed) return;
+        candidates.add(trimmed);
+    };
+
+    await new Promise<void>((resolve) => {
+        try {
+            const child = spawn('where.exe', ['node'], {
+                stdio: ['ignore', 'pipe', 'ignore'],
+                windowsHide: true,
+            });
+            let output = '';
+            child.stdout?.on('data', (chunk: Buffer) => {
+                output += chunk.toString();
+            });
+            child.on('close', () => {
+                for (const line of output.split(/\r?\n/)) {
+                    addCandidate(line);
+                }
+                resolve();
+            });
+            child.on('error', () => resolve());
+        } catch {
+            resolve();
+        }
+    });
+
+    addCandidate(path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'nodejs', 'node.exe'));
+    addCandidate(path.join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'nodejs', 'node.exe'));
+    addCandidate(path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'nodejs', 'node.exe'));
+
+    const appRoot = path.resolve(appPath).toLowerCase();
+    for (const candidate of candidates) {
+        try {
+            if (!fs.existsSync(candidate)) continue;
+            const resolved = path.resolve(candidate);
+            const normalized = resolved.toLowerCase();
+            if (normalized.startsWith(appRoot + path.sep.toLowerCase()) || normalized === appRoot) {
+                continue;
+            }
+            return resolved;
+        } catch {
+            // Keep trying next candidate
+        }
+    }
+
+    return undefined;
+}
+
+function buildWindowsPowerShellUpdaterScript(params: {
+    appPath: string;
+    updateDir: string;
+    zipPath: string;
+    backupPath: string;
+    exeName: string;
+    ppid: number;
+    logPath: string;
+}): string {
+    const appPath = toPowerShellSingleQuoted(params.appPath);
+    const updateDir = toPowerShellSingleQuoted(params.updateDir);
+    const zipPath = toPowerShellSingleQuoted(params.zipPath);
+    const backupPath = toPowerShellSingleQuoted(params.backupPath);
+    const exeName = toPowerShellSingleQuoted(params.exeName);
+    const logPath = toPowerShellSingleQuoted(params.logPath);
+
+    return [
+        `$ErrorActionPreference = 'Stop'`,
+        `Set-Location -Path $env:TEMP`,
+        `$LogPath = ${logPath}`,
+        `function Write-Log([string]$Message) {`,
+        `  Add-Content -Path $LogPath -Value $Message`,
+        `}`,
+        `function Fail([string]$Message) {`,
+        `  Write-Log ("FATAL: " + $Message)`,
+        `  exit 1`,
+        `}`,
+        `Write-Log ("=== LunaIDE PowerShell updater started at " + (Get-Date).ToString("s") + " ===")`,
+        `$AppPath = ${appPath}`,
+        `$UpdateDir = ${updateDir}`,
+        `$ZipPath = ${zipPath}`,
+        `$BackupPath = ${backupPath}`,
+        `$ExeName = ${exeName}`,
+        `$ParentPid = ${params.ppid}`,
+        `$ExePath = Join-Path $AppPath $ExeName`,
+        `Write-Log ("APP=" + $AppPath)`,
+        `Write-Log ("EXE=" + $ExePath)`,
+        `Write-Log ("Waiting for LunaIDE process " + $ParentPid + " to exit...")`,
+        `for ($i = 0; $i -lt 120; $i++) {`,
+        `  if (-not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }`,
+        `  Start-Sleep -Seconds 1`,
+        `}`,
+        `if (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) {`,
+        `  Write-Log ("Force killing PID " + $ParentPid)`,
+        `  Stop-Process -Id $ParentPid -Force -ErrorAction SilentlyContinue`,
+        `  Start-Sleep -Seconds 2`,
+        `}`,
+        `Write-Log "Extracting archive..."`,
+        `New-Item -ItemType Directory -Path $UpdateDir -Force | Out-Null`,
+        `try {`,
+        `  Expand-Archive -Path $ZipPath -DestinationPath $UpdateDir -Force`,
+        `} catch {`,
+        `  Fail ("Failed to extract update archive: " + $_.Exception.Message)`,
+        `}`,
+        `$ExtractedRoot = $UpdateDir`,
+        `$DirectExe = Join-Path $UpdateDir $ExeName`,
+        `if (Test-Path $DirectExe) {`,
+        `  $ExtractedRoot = $UpdateDir`,
+        `} else {`,
+        `  $NestedExe = Get-ChildItem -Path $UpdateDir -Filter $ExeName -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1`,
+        `  if (-not $NestedExe) { Fail ($ExeName + " not found in downloaded package") }`,
+        `  $ExtractedRoot = $NestedExe.Directory.FullName`,
+        `}`,
+        `Write-Log ("Found new app at: " + $ExtractedRoot)`,
+        `if (Test-Path $BackupPath) {`,
+        `  Remove-Item -Path $BackupPath -Recurse -Force -ErrorAction SilentlyContinue`,
+        `}`,
+        `$MovedCurrent = $false`,
+        `for ($retry = 0; $retry -lt 20; $retry++) {`,
+        `  $AppPathForScan = $AppPath`,
+        `  Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($AppPathForScan, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object {`,
+        `    try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch { }`,
+        `  }`,
+        `  try {`,
+        `    Move-Item -LiteralPath $AppPath -Destination $BackupPath -Force`,
+        `    $MovedCurrent = $true`,
+        `    break`,
+        `  } catch {`,
+        `    Start-Sleep -Seconds 1`,
+        `  }`,
+        `}`,
+        `if (-not $MovedCurrent) {`,
+        `  Fail "Could not move current app aside (likely still locked)."`,
+        `}`,
+        `try {`,
+        `  Move-Item -LiteralPath $ExtractedRoot -Destination $AppPath -Force`,
+        `} catch {`,
+        `  Write-Log "Move failed, restoring backup..."`,
+        `  try { Move-Item -LiteralPath $BackupPath -Destination $AppPath -Force } catch {}`,
+        `  Fail ("Could not place new app (restored backup): " + $_.Exception.Message)`,
+        `}`,
+        `if (-not (Test-Path $ExePath)) {`,
+        `  Fail ("Binary not found after swap: " + $ExePath)`,
+        `}`,
+        `Write-Log ("Binary validated: " + $ExePath)`,
+        `Write-Log "Cleaning up..."`,
+        `try { Remove-Item -Path $BackupPath -Recurse -Force -ErrorAction SilentlyContinue } catch {}`,
+        `try { Remove-Item -Path $UpdateDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}`,
+        `try { Remove-Item -Path $ZipPath -Force -ErrorAction SilentlyContinue } catch {}`,
+        `Write-Log "Relaunching LunaIDE..."`,
+        `Start-Process -FilePath $ExePath`,
+        `Write-Log "=== Update complete ==="`,
+        `exit 0`,
+        ``,
+    ].join('\r\n');
+}
+
+function toPowerShellSingleQuoted(value: string): string {
+    return `'${value.replace(/'/g, "''")}'`;
 }
 
 /** Fetch the release from GitHub and return the download URL for the matching platform asset. */
