@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "luna": {
+      "type": "http",
+      "url": "http://127.0.0.1:4141/mcp/claude",
+      "headers": {
+        "X-Luna-Agent": "${LUNA_AGENT:-claude}"
+      }
+    }
+  }
+}
