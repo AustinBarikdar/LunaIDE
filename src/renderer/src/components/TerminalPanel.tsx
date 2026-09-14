@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { PluginAgent } from '../../../preload/index.d'
 import { LuPlus, LuX, LuSparkles, LuBot, LuTerminal } from 'react-icons/lu'
 import TermView, { Term } from './TermView'
+import { sortableProps } from './sortable'
 import { EmptyState } from './ui'
 
 export function TermIcon({ cmd }: { cmd?: string }): React.JSX.Element {
@@ -62,20 +63,29 @@ type Props = {
   terms: Term[]
   onAdd: (name?: string, cmd?: string, agent?: string) => void
   onClose: (id: string) => void
+  /** Drag a tab onto another to reorder. */
+  onMove: (from: string, to: string) => void
 }
 
 /** IDE mode: every terminal as a tab in the bottom panel. */
-export default function TerminalPanel({ cwd, terms, onAdd, onClose }: Props): React.JSX.Element {
+export default function TerminalPanel({
+  cwd,
+  terms,
+  onAdd,
+  onClose,
+  onMove
+}: Props): React.JSX.Element {
   const [active, setActive] = useState<string | null>(null)
   const current = terms.some((t) => t.id === active) ? active : (terms.at(-1)?.id ?? null)
   const dir = cwd ?? '~'
   return (
     <>
       <div className="tabs">
-        {terms.map((t) => (
+        {terms.map((t, i) => (
           <div
             key={t.id}
             className={'tab' + (t.id === current ? ' active' : '')}
+            {...sortableProps(i, (from, to) => onMove(terms[from].id, terms[to].id))}
             onClick={() => setActive(t.id)}
           >
             <span className={'tab-ico ' + (t.cmd ?? '')}>

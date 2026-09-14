@@ -59,11 +59,11 @@ function configureLsp(): void {
 }
 function pluginsChanged(): void {
   configureLsp()
-  if (win && !win.isDestroyed()) win.webContents.send('plugins-changed')
+  for (const w of everyWindow()) w.webContents.send('plugins-changed')
 }
 
 const notifyHub = (s: HubStatus): void => {
-  if (win && !win.isDestroyed()) win.webContents.send('hub-status', s)
+  for (const w of everyWindow()) w.webContents.send('hub-status', s)
 }
 
 function createWindow(): void {
@@ -92,6 +92,35 @@ function createWindow(): void {
   }
 }
 
+/** Views the user can tear off into their own window. Terminals stay in the main window. */
+const popouts = new Map<string, BrowserWindow>()
+
+function openPopout(view: string): void {
+  const open = popouts.get(view)
+  if (open && !open.isDestroyed()) return open.focus()
+  const w = new BrowserWindow({
+    width: 560,
+    height: 780,
+    show: false,
+    titleBarStyle: 'hiddenInset',
+    vibrancy: 'under-window',
+    visualEffectState: 'active',
+    backgroundColor: '#00000000',
+    trafficLightPosition: { x: 12, y: 12 },
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+  })
+  popouts.set(view, w)
+  w.on('closed', () => popouts.delete(view))
+  w.on('ready-to-show', () => w.show())
+  if (is.dev && process.env['ELECTRON_RENDERER_URL'])
+    w.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#popout=${view}`)
+  else w.loadFile(join(__dirname, '../renderer/index.html'), { hash: `popout=${view}` })
+}
+
+/** Everything the main window broadcasts has to reach the torn-off windows too. */
+const everyWindow = (): BrowserWindow[] =>
+  [win, ...popouts.values()].filter((w): w is BrowserWindow => !!w && !w.isDestroyed())
+
 function openProject(dir: string): string {
   watcher?.close()
   // ponytail: recursive fs.watch is native on macOS; swap for chokidar if Linux support matters
@@ -107,11 +136,12 @@ function openProject(dir: string): string {
   )
   vaultWatcher?.close()
   vaultWatcher = watch(join(vaultRoot(dir), 'summaries'), () =>
-    win.webContents.send('vault-changed')
+    everyWindow().forEach((w) => w.webContents.send('vault-changed'))
   )
   logWatcher?.close()
   logWatcher = watch(vaultRoot(dir), (_e, name) => {
-    if (String(name) === 'log.jsonl') win.webContents.send('activity-changed')
+    if (String(name) === 'log.jsonl')
+      everyWindow().forEach((w) => w.webContents.send('activity-changed'))
   })
   const recent = [dir, ...getSettings().recentProjects.filter((p) => p !== dir)].slice(0, 10)
   saveSettings({ recentProjects: recent })
@@ -130,6 +160,13 @@ app.whenReady().then(() => {
     return r.canceled ? null : openProject(r.filePaths[0])
   })
   ipcMain.handle('open-project', (_e, dir: string) => openProject(dir))
+  ipcMain.handle('popout-open', (_e, view: string) => openPopout(view))
+  ipcMain.handle('popout-reveal', (_e, rel: string, diff?: string) => {
+    if (!win || win.isDestroyed()) return
+    win.webContents.send('popout-reveal', rel, diff)
+    win.focus()
+  })
+  ipcMain.handle('project-get', () => project)
   ipcMain.handle('pick-dir', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] })
     return r.canceled ? null : r.filePaths[0]
@@ -154,8 +191,10 @@ app.whenReady().then(() => {
   ipcMain.handle('summaries-list', () => (project ? readSummaries(project, 50) : []))
   ipcMain.handle('rollups-list', () => (project ? readRollups(project, 3) : []))
   ipcMain.handle('rollup', () => rollup(project))
-  ipcMain.handle('git', (_e, op: keyof typeof gitOps, arg?: string) =>
-    (gitOps[op] as (c: string, a?: string) => unknown)(project, arg)
+  ipcMain.handle('git', (_e, op: keyof typeof gitOps, ...args: string[]) =>
+    op === 'gh'
+      ? gitOps.gh()
+      : (gitOps[op] as (c: string, ...a: string[]) => unknown)(project, ...args)
   )
   ipcMain.handle('agents-preview', (_e, a: AgentName) => preview(a, project, hubStatus().port))
   ipcMain.handle('agents-status', (_e, a: AgentName) => agentStatus(a, project))

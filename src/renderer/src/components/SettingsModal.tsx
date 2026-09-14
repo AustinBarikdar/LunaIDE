@@ -10,7 +10,11 @@ import {
   LuPlus,
   LuTrash2,
   LuBot,
-  LuCheck
+  LuCheck,
+  LuPalette,
+  LuSun,
+  LuMoon,
+  LuMonitor
 } from 'react-icons/lu'
 import type { Settings, ServerConfig, AgentName, Preview } from '../../../preload/index.d'
 import { Avatar } from './ui'
@@ -21,7 +25,13 @@ type Props = {
   onClose: () => void
   initialTab?: SettingsTab
 }
-export type SettingsTab = 'vault' | 'hub' | 'rollup' | 'extensions' | 'agents'
+export type SettingsTab = 'appearance' | 'vault' | 'hub' | 'rollup' | 'extensions' | 'agents'
+
+const THEMES = [
+  { id: 'light' as const, label: 'Light', icon: <LuSun /> },
+  { id: 'dark' as const, label: 'Dark', icon: <LuMoon /> },
+  { id: 'system' as const, label: 'System', icon: <LuMonitor /> }
+]
 
 export default function SettingsModal({
   settings,
@@ -42,6 +52,12 @@ export default function SettingsModal({
       <div className="modal">
         <aside className="modal-nav">
           <div className="modal-title">Settings</div>
+          <button
+            className={'nav-item' + (tab === 'appearance' ? ' on' : '')}
+            onClick={() => setTab('appearance')}
+          >
+            <LuPalette /> Appearance
+          </button>
           <button
             className={'nav-item' + (tab === 'vault' ? ' on' : '')}
             onClick={() => setTab('vault')}
@@ -77,6 +93,28 @@ export default function SettingsModal({
           <button className="icon ghost modal-close" onClick={onClose} title="Close (Esc)">
             <LuX />
           </button>
+          {tab === 'appearance' && (
+            <>
+              <h2>Appearance</h2>
+              <p className="dim">
+                Light, dark, or whatever the system is set to. It changes the editor and the
+                terminals with it.
+              </p>
+              <div className="theme-picker">
+                {THEMES.map((t) => (
+                  <button
+                    key={t.id}
+                    className={'theme-card' + (settings.theme === t.id ? ' on' : '')}
+                    onClick={() => save({ theme: t.id })}
+                  >
+                    <span className={'theme-swatch ' + t.id} />
+                    {t.icon} {t.label}
+                    {settings.theme === t.id && <LuCheck className="accent" />}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           {tab === 'vault' && (
             <>
               <h2>Memory vault</h2>

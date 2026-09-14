@@ -3,6 +3,7 @@ import { LuX } from 'react-icons/lu'
 import TermView, { Term } from './TermView'
 import { TermIcon } from './TerminalPanel'
 import { rowsFor, TileMode } from './tileLayout'
+import { dragProps } from './dnd'
 
 export type { TileMode }
 
@@ -44,7 +45,8 @@ export default function Tiles({
   cwd,
   visible,
   mode,
-  onClose
+  onClose,
+  onMove
 }: {
   ws: string
   tiles: Term[]
@@ -52,13 +54,18 @@ export default function Tiles({
   visible: boolean
   mode: TileMode
   onClose: (id: string) => void
+  onMove: (from: string, to: string) => void
 }): React.JSX.Element {
   const rows = rowsFor(tiles, mode)
   // ponytail: panels are keyed by position, not terminal id, so a remembered size stays with
   // the slot (and localStorage doesn't grow a key per random terminal id).
   const tile = (t: Term, col: number): React.JSX.Element => (
     <Panel key={t.id} id={'c' + col} minSize={140} className="tile">
-      <div className="tile-head">
+      <div
+        className="tile-head"
+        title="Drag to move this terminal"
+        {...dragProps(t.id, 'luna/term', onMove)}
+      >
         <span className={'tab-ico ' + (t.cmd ?? '')}>
           <TermIcon cmd={t.cmd} />
         </span>

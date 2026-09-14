@@ -5,6 +5,8 @@ import { DEFAULT_SERVERS, type ServerConfig } from './lsp'
 
 export type Settings = {
   vaultPath: string
+  /** 'system' follows the OS appearance. */
+  theme: 'light' | 'dark' | 'system'
   hubPort: number
   summarizer: 'claude' | 'codex'
   summarizerModel: string
@@ -15,6 +17,7 @@ export type Settings = {
 
 const defaults: Settings = {
   vaultPath: '',
+  theme: 'system',
   hubPort: 4141,
   summarizer: 'claude',
   summarizerModel: '',

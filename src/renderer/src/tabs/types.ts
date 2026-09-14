@@ -1,4 +1,4 @@
-import type { Settings } from '../../../preload/index.d'
+import type { CommitDetail, Settings } from '../../../preload/index.d'
 
 export type TabProps = {
   project: string | null
@@ -12,4 +12,8 @@ export type TabProps = {
   reveal: (path: string, line: number, ch: number) => void
   /** Open the team-prompt composer. */
   openTeam: () => void
+  /** Open a terminal in the current workspace running a command (e.g. an interactive login). */
+  openTerminal?: (name: string, cmd: string) => void
+  /** Show a commit as its own editor tab, with the whole diff. */
+  openCommit?: (commit: CommitDetail) => void
 }

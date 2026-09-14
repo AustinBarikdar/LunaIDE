@@ -26,10 +26,22 @@ Terminals belong to Luna, not to a view: switching views or workspaces keeps eve
 
 ## Layout
 
-- Left edge: activity buttons that switch the sidebar between **Files**, **Git** (init / commit / push / pull), **Summaries** (agent posts with diffs + roll-up), **Agents** (hub status + registration) and **Settings** (vault path, hub port, summarizer). Click the active one to collapse the sidebar. **Terms** at the bottom hides the editor for a terminal-only layout.
+- Left edge: activity buttons that switch the sidebar between **Files**, **Git** (init / commit / push / pull / history), **Summaries** (agent posts with diffs + roll-up), **Agents** (hub status + registration) and **Settings** (vault path, hub port, summarizer). Click the active one to collapse the sidebar. **Terms** at the bottom hides the editor for a terminal-only layout.
 - Center: CodeMirror editor (⌘S saves). Bottom: terminals (login shells, so `claude` and `codex` are on PATH) with one-click **Claude** / **Codex** launch buttons.
 - Clicking a file name inside a summary's diff opens it in the editor with added lines highlighted green and removed lines shown in red where they were.
 - The **+** button in the bottom-right corner blooms into a quick menu: jump to any view, flip Agent/IDE view, launch Claude or Codex, open Settings (⌘,).
+
+## Make it yours
+
+**Dark mode** lives in Settings → Appearance: light, dark, or follow the system. It carries the editor and the terminals with it.
+
+**Drag things where you want them.** Tabs slide side to side under the cursor: workspace tabs, editor tabs and terminal tabs all reorder by grabbing one and moving it, with a caret showing where it will land (drop past either end to send it there). The view buttons on the left edge and the terminal tiles reorder by dragging too. Drag one terminal onto another to swap their places in the grid. The rail order and the workspace order are remembered.
+
+**Move the panes too.** IDE view has five slots: the side panel, the editor, a panel to the right of the editor, the bottom panel, and the corner beside it. The right one starts empty, as a thin strip that says **Drag a panel here**; drop anything into it and it opens up.
+
+**Fold any of them away.** Hovering a pane shows two small controls on its left edge: the grip to drag it, and an arrow to fold it. A folded pane slides shut into a labelled strip with an arrow to bring it back, so you can hide the file tree while you work and get it back with one click. Dragging a divider all the way shut folds the pane the same way, and what you folded is still folded next time you open Luna. Every pane has a grip on its left edge that appears when you hover it. Drag one pane onto another slot and the two swap, so the terminals can sit on the left, the editor at the bottom, or the file tree beside the problems list. While you drag, the pane you picked up fades and the pane under the cursor turns into a translucent slot that names what is about to land there; the contents fade in when you let go. The arrangement is remembered; **Reset pane layout** in the quick menu (or the command palette) puts it back.
+
+**Pop a view out.** The last button on the left edge tears the current view off into its own window: Files, Source control, Summaries, Agents, Activity, or Problems. It stays live, since both windows talk to the same Luna. Clicking a file there opens it in the main window's editor. Terminals stay in the main window.
 
 ## Status bar and quick search
 
@@ -45,6 +57,14 @@ The thin bottom status bar is available in both views. It shows the Git branch, 
 Use the popup's Files, Project Text, and Commands buttons to switch modes. Arrow keys navigate, Enter opens a result, and Escape closes the popup and restores focus. Opening a result in Agents mode switches to IDE mode and jumps to the file or match.
 
 Project searches respect nested `.gitignore` files and skip generated folders, symlinks, binary files, and files larger than 1 MB. Unsaved open-file contents take precedence over disk contents. Results are capped at 100 files or 500 text matches; narrow the query when a limit notice appears. Project text search supports literal text only, without project-wide replacement or regular expressions.
+
+## Source control
+
+The Git view carries the branch, the working-tree changes, a commit box, and a **History** graph at the bottom. Each commit sits on a rail: a filled dot is on the remote, a hollow dot with a **local** chip is still only in your clone, and a line marks where the upstream branch has got to. Branch and tag names show as chips, and merges are labelled.
+
+Click a commit to open it: the full message, every branch that contains it, and the diff in green and red. Click a file inside that diff to open it in the editor with the same highlighting.
+
+**Push** sends the branch when it already tracks a remote one. When it does not, the button reads **Publish branch** and asks before creating the branch on origin. With no remote at all, the **GitHub** section uses the GitHub CLI: it creates the repository (private or public), wires it up as origin and pushes. If the CLI is installed but signed out, Luna opens a terminal running its login for you; if it isn't installed, paste a remote URL under **Remote** instead.
 
 ## MCP hub
 

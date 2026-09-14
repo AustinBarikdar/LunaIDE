@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Group, Panel, Separator } from 'react-resizable-panels'
+import { Group, Panel, Separator, type PanelImperativeHandle } from 'react-resizable-panels'
 import FileTree from './components/FileTree'
 import Editor, { OpenFile } from './components/Editor'
 import TerminalPanel from './components/TerminalPanel'
@@ -7,6 +7,8 @@ import AgentView from './components/AgentView'
 import ModeChooser, { Mode } from './components/ModeChooser'
 import type { Term } from './components/TermView'
 import { disposeTerm } from './components/termStore'
+import { applyTheme } from './components/theme'
+import { dragProps, dragSource, dropProps, move, moveById } from './components/dnd'
 import GitTab from './tabs/GitTab'
 import SummariesTab from './tabs/SummariesTab'
 import AgentsTab from './tabs/AgentsTab'
@@ -36,6 +38,7 @@ import { EmptyState, ViewHead } from './components/ui'
 import { Blobs, SlidingIndicator } from './components/fx'
 import { useDockMagnify, useTyping } from './components/fx-hooks'
 import type {
+  CommitDetail,
   HubStatus,
   Settings,
   PluginAgent,
@@ -62,6 +65,11 @@ import {
   LuMessagesSquare,
   LuNetwork,
   LuTriangleAlert,
+  LuExternalLink,
+  LuGripVertical,
+  LuChevronLeft,
+  LuChevronRight,
+  LuChevronUp,
   LuCrown
 } from 'react-icons/lu'
 
@@ -73,6 +81,36 @@ const VIEWS: { id: View; label: string; icon: React.JSX.Element }[] = [
   { id: 'agents', label: 'Agents & team', icon: <LuBot /> },
   { id: 'activity', label: 'Activity', icon: <LuMessagesSquare /> }
 ]
+
+type Slot = 'side' | 'main' | 'right' | 'bottom' | 'corner'
+type PaneId = 'sidebar' | 'editor' | 'terminals' | 'problems'
+/** Which pane sits in each slot; a slot with nothing in it shows a drop target. */
+type Layout = Record<Slot, PaneId | null>
+const SLOTS: Slot[] = ['side', 'main', 'right', 'bottom', 'corner']
+const PANE_IDS: PaneId[] = ['sidebar', 'editor', 'terminals', 'problems']
+const DEFAULT_LAYOUT: Layout = {
+  side: 'sidebar',
+  main: 'editor',
+  right: null,
+  bottom: 'terminals',
+  corner: 'problems'
+}
+/** Which way a slot folds away when you collapse it. */
+const SLOT_DIR: Record<Slot, 'left' | 'right' | 'up' | 'down'> = {
+  side: 'left',
+  main: 'up',
+  right: 'right',
+  // the bottom row is a horizontal pair, so these two fold sideways
+  bottom: 'left',
+  corner: 'right'
+}
+
+const PANE_NAMES: Record<PaneId, string> = {
+  sidebar: 'the side panel',
+  editor: 'the editor',
+  terminals: 'the terminals',
+  problems: 'problems'
+}
 
 const stored = (k: string): string | null => {
   try {
@@ -181,6 +219,12 @@ export default function App(): React.JSX.Element {
       return [...t, { id, name: label, cmd, agent: identity, ws }]
     })
   }
+  /** Drag one terminal onto another to swap their places. */
+  const moveTerm = (from: string, to: string): void =>
+    setTerms((t) => moveById(t, from, to, (x) => x.id))
+  const moveWorkspace = (from: string, to: string): void =>
+    saveWorkspaces(move(workspaces, workspaces.indexOf(from), workspaces.indexOf(to)))
+
   const closeTerm = (id: string): void => {
     window.luna.pty.kill(id)
     disposeTerm(id)
@@ -271,12 +315,54 @@ export default function App(): React.JSX.Element {
     setActive(path)
   }, [])
 
+  /** Show a commit from the history as its own editor tab (IDE view only; agent view has no editor). */
+  const openCommit = (commit: CommitDetail): void => {
+    if (mode === 'agent') return
+    if (terminalOnly) toggleTerminalOnly()
+    const path = `commit:${commit.hash}`
+    setFiles((fs) =>
+      fs.some((f) => f.path === path)
+        ? fs.map((f) => (f.path === path ? { ...f, commit } : f))
+        : [...fs, { path, content: '', saved: '', commit }]
+    )
+    setActive(path)
+  }
+
   const openDiff = (rel: string, fileDiff: string): void => {
     if (!project) return
     if (mode === 'agent') setMode('ide')
     if (terminalOnly) toggleTerminalOnly()
     openFile(rel.startsWith('/') ? rel : `${project}/${rel}`, fileDiff)
   }
+
+  // ponytail: the rail order is a list of view ids in localStorage; unknown ids are ignored and
+  // any view missing from it (a new one) is appended, so the stored order can never hide a view.
+  const [viewOrder, setViewOrder] = useState<View[]>(() => {
+    const saved = storedList('luna:viewOrder', []) as View[]
+    const known = saved.filter((id) => VIEWS.some((v) => v.id === id))
+    return [...known, ...VIEWS.map((v) => v.id).filter((id) => !known.includes(id))]
+  })
+  const orderedViews = viewOrder.map((id) => VIEWS.find((v) => v.id === id)!).filter(Boolean)
+  const moveView = (from: string, to: string): void =>
+    setViewOrder((o) => {
+      const next = move(o, o.indexOf(from as View), o.indexOf(to as View))
+      store('luna:viewOrder', JSON.stringify(next))
+      return next
+    })
+
+  // a torn-off window has no editor: it hands files back here
+  useEffect(
+    () =>
+      window.luna.popout.onReveal((rel, diff) => {
+        if (diff) openDiff(rel, diff)
+        else openFile(rel.startsWith('/') ? rel : `${project}/${rel}`)
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, mode, terminalOnly]
+  )
+
+  const theme = settings?.theme ?? 'system'
+  useEffect(() => applyTheme(theme), [theme])
 
   const saveSetting = async (patch: Partial<Settings>): Promise<void> =>
     setSettings(await window.luna.settings.save(patch))
@@ -349,6 +435,99 @@ export default function App(): React.JSX.Element {
     )
   }
   const mod = modifierLabel()
+  const [layout, setLayout] = useState<Layout>(() => {
+    try {
+      const saved = JSON.parse(stored('luna:layout') ?? 'null')
+      if (saved && typeof saved === 'object') {
+        const seen = new Set<PaneId>()
+        const next = { ...DEFAULT_LAYOUT }
+        for (const slot of SLOTS) next[slot] = null
+        for (const slot of SLOTS) {
+          const pane = saved[slot]
+          if (PANE_IDS.includes(pane) && !seen.has(pane)) {
+            next[slot] = pane
+            seen.add(pane)
+          }
+        }
+        // any pane the saved layout lost goes back to its home slot
+        for (const slot of SLOTS) {
+          const home = DEFAULT_LAYOUT[slot]
+          if (home && !seen.has(home) && !next[slot]) {
+            next[slot] = home
+            seen.add(home)
+          }
+        }
+        return next
+      }
+    } catch {
+      /* fall through to the default arrangement */
+    }
+    return { ...DEFAULT_LAYOUT }
+  })
+  /** Move a pane into a slot; whatever was there takes the pane's old place. */
+  const movePane = (paneId: string, slot: string): void =>
+    setLayout((l) => {
+      const from = SLOTS.find((s) => l[s] === paneId)
+      const to = slot as Slot
+      if (!from || !SLOTS.includes(to) || from === to) return l
+      const next = { ...l, [to]: l[from], [from]: l[to] }
+      store('luna:layout', JSON.stringify(next))
+      return next
+    })
+  const resetLayout = (): void => {
+    setLayout({ ...DEFAULT_LAYOUT })
+    store('luna:layout', JSON.stringify(DEFAULT_LAYOUT))
+    setCollapsed({})
+    store('luna:folded', '{}')
+    for (const slot of SLOTS) panelApi.current.get(slot)?.expand()
+  }
+  const [collapsed, setCollapsed] = useState<Partial<Record<Slot, boolean>>>(() => {
+    try {
+      const saved = JSON.parse(stored('luna:folded') ?? '{}')
+      return saved && typeof saved === 'object' ? saved : {}
+    } catch {
+      return {}
+    }
+  })
+  const panelApi = useRef(new Map<Slot, PanelImperativeHandle | null>())
+  /** Fold a slot away to a strip, or bring it back. The panel slides; see .sliding in styles.css. */
+  const toggleCollapse = (slot: Slot): void => {
+    const api = panelApi.current.get(slot)
+    if (!api) return
+    document.body.classList.add('sliding')
+    setTimeout(() => document.body.classList.remove('sliding'), 320)
+    const fold = !collapsed[slot]
+    setCollapsed((c) => {
+      const next = { ...c, [slot]: fold }
+      store('luna:folded', JSON.stringify(next))
+      return next
+    })
+    if (fold) api.collapse()
+    else api.expand()
+  }
+  // ponytail: a pixel threshold rather than isCollapsed(), so dragging a divider shut folds too
+  const noteCollapsed = (slot: Slot, size: { inPixels: number }): void =>
+    setCollapsed((c) => {
+      const folded = size.inPixels <= 48
+      return c[slot] === folded ? c : { ...c, [slot]: folded }
+    })
+
+  // fold the slots that were folded when Luna last closed, once the panels exist
+  const foldedOnce = useRef(false)
+  useEffect(() => {
+    if (foldedOnce.current || mode !== 'ide') return
+    foldedOnce.current = true
+    for (const slot of SLOTS) if (collapsed[slot]) panelApi.current.get(slot)?.collapse()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode])
+
+  /** Panels remount only when a slot becomes empty or filled, not on an ordinary swap. */
+  const emptySignature = SLOTS.map((s) => (layout[s] ? 1 : 0)).join('')
+  /** The Problems pane only takes its slot while it is switched on. */
+  const slotShown = (s: Slot): boolean => layout[s] !== 'problems' || problemsOpen
+  const slotProps = (slot: Slot): ReturnType<typeof dropProps> =>
+    dropProps(slot, 'luna/pane', movePane)
+
   const commands: Command[] = [
     {
       id: 'search.files',
@@ -397,6 +576,13 @@ export default function App(): React.JSX.Element {
       shortcut: `${mod}J`,
       enabled: mode === 'ide',
       run: toggleTerminalOnly
+    },
+    {
+      id: 'view.resetLayout',
+      label: 'Reset Pane Layout',
+      keywords: 'panes arrange move drag default',
+      enabled: mode === 'ide',
+      run: resetLayout
     },
     {
       id: 'view.problems',
@@ -505,7 +691,136 @@ export default function App(): React.JSX.Element {
   })
 
   const openTeam = (): void => setTeamOpen(true)
-  const tabProps = { project, settings: settings!, saveSetting, openDiff, launch, reveal, openTeam }
+  // ponytail: five fixed slots, and the user says which pane lives in each. Dragging a pane's grip
+  // onto a slot moves it there and the slot's old pane takes its place — enough to rearrange the
+  // IDE without a docking engine. A slot with nothing in it is a drop target you can fill.
+  const arrowFor = (slot: Slot, open: boolean): React.JSX.Element => {
+    const dir = SLOT_DIR[slot]
+    // pointing the way it will move
+    if (dir === 'left') return open ? <LuChevronLeft /> : <LuChevronRight />
+    if (dir === 'right') return open ? <LuChevronRight /> : <LuChevronLeft />
+    if (dir === 'up') return open ? <LuChevronUp /> : <LuChevronDown />
+    return open ? <LuChevronDown /> : <LuChevronUp />
+  }
+
+  const pane = (slot: Slot): React.JSX.Element => {
+    const c = layout[slot]
+    if (collapsed[slot] && c)
+      return (
+        <div className="pane-swap strip-body" key={'folded:' + slot} {...slotProps(slot)}>
+          <button
+            className="strip-open"
+            title={`Show ${PANE_NAMES[c]}`}
+            aria-label={`Show ${PANE_NAMES[c]}`}
+            onClick={() => toggleCollapse(slot)}
+          >
+            {arrowFor(slot, false)}
+            <span>{PANE_NAMES[c]}</span>
+          </button>
+        </div>
+      )
+    if (!c)
+      return (
+        <div className="pane-swap empty" key={'empty:' + slot} {...slotProps(slot)}>
+          <div className="slot-empty">
+            {arrowFor(slot, false)}
+            <span>Drag a panel here</span>
+          </div>
+        </div>
+      )
+    return (
+      // keyed by content: the slot keeps its size and the new content settles in.
+      // The drop handlers live here, not on the Panel: the panels library keeps extra props on a
+      // wrapper of its own, so the highlight would land on an element we cannot style.
+      <div className="pane-swap" key={c} {...slotProps(slot)}>
+        <div className="pane-rail">
+          <button
+            className="pane-grip"
+            title={`Drag to move ${PANE_NAMES[c]}`}
+            aria-label={`Move ${PANE_NAMES[c]}`}
+            {...dragSource(c, 'luna/pane', PANE_NAMES[c])}
+          >
+            <LuGripVertical />
+          </button>
+          <button
+            className="pane-fold"
+            title={`Hide ${PANE_NAMES[c]}`}
+            aria-label={`Hide ${PANE_NAMES[c]}`}
+            onClick={() => toggleCollapse(slot)}
+          >
+            {arrowFor(slot, true)}
+          </button>
+        </div>
+        {c === 'sidebar' ? (
+          <>
+            {view === 'files' && (
+              <>
+                <ViewHead title={project ? base(project) : 'Files'} />
+                {project ? (
+                  <FileTree
+                    root={project}
+                    version={treeVersion}
+                    active={active}
+                    onOpen={openFile}
+                  />
+                ) : (
+                  <EmptyState
+                    icon={<LuFolder />}
+                    title="No project"
+                    text="Open a folder to browse its files."
+                  />
+                )}
+              </>
+            )}
+            {settings && view === 'git' && <GitTab {...tabProps} />}
+            {settings && view === 'summaries' && <SummariesTab {...tabProps} />}
+            {settings && view === 'agents' && <AgentsTab {...tabProps} />}
+            {settings && view === 'activity' && <ActivityTab {...tabProps} />}
+          </>
+        ) : c === 'editor' ? (
+          project ? (
+            <Editor
+              files={files}
+              setFiles={setFiles}
+              active={active}
+              setActive={setActive}
+              problems={problemCount}
+              problemsOpen={problemsOpen}
+              onToggleProblems={toggleProblems}
+              onStatus={setEditorStatus}
+              onOpenFile={openDiff}
+            />
+          ) : (
+            welcome
+          )
+        ) : c === 'terminals' ? (
+          <TerminalPanel
+            cwd={project}
+            terms={terms}
+            onAdd={addTerm}
+            onClose={closeTerm}
+            onMove={moveTerm}
+          />
+        ) : settings ? (
+          <ProblemsTab {...tabProps} onClose={toggleProblems} />
+        ) : (
+          <></>
+        )}
+      </div>
+    )
+  }
+
+  const tabProps = {
+    project,
+    settings: settings!,
+    saveSetting,
+    openDiff,
+    launch,
+    reveal,
+    openTeam,
+    openCommit,
+    openTerminal: (name: string, cmd: string) => addTerm(name, cmd)
+  }
   const recent = settings?.recentProjects ?? []
 
   const welcome = (
@@ -642,22 +957,34 @@ export default function App(): React.JSX.Element {
           { icon: <LuSparkles />, label: 'Launch Claude Code', onClick: () => launch('claude') },
           { icon: <LuBotIcon />, label: 'Launch Codex', onClick: () => launch('codex') },
           { icon: <LuNetwork />, label: 'Vault graph', onClick: () => setVaultOpen(true) },
+          ...(mode === 'ide'
+            ? [{ icon: <LuGripVertical />, label: 'Reset pane layout', onClick: resetLayout }]
+            : []),
           { icon: <LuSettings />, label: 'Settings', onClick: () => setSettingsOpen(true) }
         ]}
       />
       <div className="body">
         <nav className="activity" ref={navRef}>
-          {VIEWS.map((v) => (
+          {orderedViews.map((v) => (
             <button
               key={v.id}
               className={'act' + (view === v.id ? ' active' : '')}
-              data-tip={v.label}
+              data-tip={v.label + ' — drag to reorder'}
               aria-label={v.label}
               onClick={() => pickView(v.id)}
+              {...dragProps(v.id, 'luna/view', moveView)}
             >
               {v.icon}
             </button>
           ))}
+          <button
+            className="act"
+            data-tip="Pop this view out into its own window"
+            aria-label="Pop out this view"
+            onClick={() => window.luna.popout.open(view ?? 'files')}
+          >
+            <LuExternalLink />
+          </button>
           {mode === 'ide' && (
             <button
               className={'act' + (problemsOpen ? ' active' : '')}
@@ -700,36 +1027,25 @@ export default function App(): React.JSX.Element {
         </nav>
 
         <Group
-          key={`${view ? 1 : 0}-${terminalOnly ? 1 : 0}-${mode}-${problemsOpen ? 1 : 0}`}
+          key={`${view ? 1 : 0}-${terminalOnly ? 1 : 0}-${mode}-${problemsOpen ? 1 : 0}-${emptySignature}`}
           orientation="horizontal"
           className="group"
         >
-          {view && (
+          {view && slotShown('side') && (
             <>
-              <Panel defaultSize={340} minSize={240} maxSize={640} className="pane sidebar">
-                {view === 'files' && (
-                  <>
-                    <ViewHead title={project ? base(project) : 'Files'} />
-                    {project ? (
-                      <FileTree
-                        root={project}
-                        version={treeVersion}
-                        active={active}
-                        onOpen={openFile}
-                      />
-                    ) : (
-                      <EmptyState
-                        icon={<LuFolder />}
-                        title="No project"
-                        text="Open a folder to browse its files."
-                      />
-                    )}
-                  </>
-                )}
-                {settings && view === 'git' && <GitTab {...tabProps} />}
-                {settings && view === 'summaries' && <SummariesTab {...tabProps} />}
-                {settings && view === 'agents' && <AgentsTab {...tabProps} />}
-                {settings && view === 'activity' && <ActivityTab {...tabProps} />}
+              <Panel
+                defaultSize={340}
+                minSize={200}
+                maxSize={layout.side === 'sidebar' ? 640 : undefined}
+                collapsible
+                collapsedSize={40}
+                panelRef={(api) => {
+                  panelApi.current.set('side', api)
+                }}
+                onResize={(size) => noteCollapsed('side', size)}
+                className={'pane ' + (layout.side ?? 'blank') + (collapsed.side ? ' folded' : '')}
+              >
+                {pane('side')}
               </Panel>
               <Separator className="sep" />
             </>
@@ -748,54 +1064,96 @@ export default function App(): React.JSX.Element {
                   onCloseWorkspace={closeWorkspace}
                   onAdd={addTerm}
                   onClose={closeTerm}
+                  onMoveTerm={moveTerm}
+                  onMoveWorkspace={moveWorkspace}
                 />
               </div>
             ) : (
               <Group orientation="vertical" className="group">
-                {!terminalOnly && (
+                {!terminalOnly && slotShown('main') && (
                   <>
-                    <Panel minSize={120} className="pane editor">
-                      {project ? (
-                        <Editor
-                          files={files}
-                          setFiles={setFiles}
-                          active={active}
-                          setActive={setActive}
-                          problems={problemCount}
-                          problemsOpen={problemsOpen}
-                          onToggleProblems={toggleProblems}
-                          onStatus={setEditorStatus}
-                        />
-                      ) : (
-                        welcome
-                      )}
+                    <Panel minSize={120} className="main">
+                      <Group orientation="horizontal" className="group">
+                        <Panel
+                          minSize={200}
+                          collapsible
+                          collapsedSize={40}
+                          panelRef={(api) => {
+                            panelApi.current.set('main', api)
+                          }}
+                          onResize={(size) => noteCollapsed('main', size)}
+                          className={
+                            'pane ' + (layout.main ?? 'blank') + (collapsed.main ? ' folded' : '')
+                          }
+                        >
+                          {pane('main')}
+                        </Panel>
+                        {slotShown('right') && (
+                          <>
+                            <Separator className="sep" />
+                            <Panel
+                              defaultSize={layout.right ? 340 : 40}
+                              minSize={layout.right ? 220 : 40}
+                              maxSize={layout.right ? undefined : 40}
+                              collapsible={!!layout.right}
+                              collapsedSize={40}
+                              panelRef={(api) => {
+                                panelApi.current.set('right', api)
+                              }}
+                              onResize={(size) => noteCollapsed('right', size)}
+                              className={
+                                'pane ' +
+                                (layout.right ?? 'blank strip') +
+                                (collapsed.right ? ' folded' : '')
+                              }
+                            >
+                              {pane('right')}
+                            </Panel>
+                          </>
+                        )}
+                      </Group>
                     </Panel>
                     <Separator className="sep" />
                   </>
                 )}
                 <Panel defaultSize={terminalOnly ? undefined : 240} minSize={120} className="main">
                   <Group orientation="horizontal" className="group">
-                    <Panel minSize={240} className="pane terminals">
-                      <TerminalPanel
-                        cwd={project}
-                        terms={terms}
-                        onAdd={addTerm}
-                        onClose={closeTerm}
-                      />
-                    </Panel>
-                    {problemsOpen && settings && (
+                    {slotShown('bottom') && (
+                      <Panel
+                        minSize={200}
+                        collapsible
+                        collapsedSize={40}
+                        panelRef={(api) => {
+                          panelApi.current.set('bottom', api)
+                        }}
+                        onResize={(size) => noteCollapsed('bottom', size)}
+                        className={
+                          'pane ' + (layout.bottom ?? 'blank') + (collapsed.bottom ? ' folded' : '')
+                        }
+                      >
+                        {pane('bottom')}
+                      </Panel>
+                    )}
+                    {slotShown('corner') && (
                       <>
-                        <Separator className="sep" />
+                        {slotShown('bottom') && <Separator className="sep" />}
                         <Panel
                           defaultSize={320}
-                          minSize={260}
-                          maxSize={480}
-                          className="problems-slot"
-                          aria-label="Problems"
+                          minSize={240}
+                          maxSize={undefined}
+                          collapsible
+                          collapsedSize={40}
+                          panelRef={(api) => {
+                            panelApi.current.set('corner', api)
+                          }}
+                          onResize={(size) => noteCollapsed('corner', size)}
+                          className={
+                            'pane ' +
+                            (layout.corner ?? 'blank') +
+                            (collapsed.corner ? ' folded' : '')
+                          }
                         >
-                          <section className="pane problems">
-                            <ProblemsTab {...tabProps} onClose={toggleProblems} />
-                          </section>
+                          {pane('corner')}
                         </Panel>
                       </>
                     )}

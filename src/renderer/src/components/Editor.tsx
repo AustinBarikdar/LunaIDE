@@ -13,13 +13,33 @@ import { markdown } from '@codemirror/lang-markdown'
 import { css } from '@codemirror/lang-css'
 import { html } from '@codemirror/lang-html'
 import { search } from '@codemirror/search'
-import { LuX, LuFileCode, LuFileDiff, LuEraser, LuTriangleAlert } from 'react-icons/lu'
+import {
+  LuX,
+  LuFileCode,
+  LuFileDiff,
+  LuEraser,
+  LuTriangleAlert,
+  LuGitCommitHorizontal
+} from 'react-icons/lu'
 import { diffOverlay } from './diffOverlay'
 import { EmptyState } from './ui'
+import { DiffView } from './Markdown'
+import { fmtTime } from './util'
+import { isDark } from './theme'
+import { move } from './dnd'
+import { sortableProps } from './sortable'
+import type { CommitDetail } from '../../../preload/index.d'
 import { LuCode } from 'react-icons/lu'
 import { languageName, type EditorStatus } from './commands'
 
-export type OpenFile = { path: string; content: string; saved: string; diff?: string }
+/** A tab: a real file, or a commit opened from the history (`path` is then `commit:<hash>`). */
+export type OpenFile = {
+  path: string
+  content: string
+  saved: string
+  diff?: string
+  commit?: CommitDetail
+}
 
 type Props = {
   files: OpenFile[]
@@ -30,6 +50,40 @@ type Props = {
   problemsOpen: boolean
   onToggleProblems: () => void
   onStatus: (status: EditorStatus) => void
+  /** Open one file of a commit with its diff highlighted. */
+  onOpenFile: (relPath: string, fileDiff: string) => void
+}
+
+/** A commit as a full-width page: message, branches, and every change in green and red. */
+function CommitPage({
+  commit,
+  onOpenFile
+}: {
+  commit: CommitDetail
+  onOpenFile: (p: string, d: string) => void
+}): React.JSX.Element {
+  return (
+    <div className="commit-page">
+      <h2>{commit.subject}</h2>
+      {commit.body && <pre className="gmessage">{commit.body}</pre>}
+      <div className="row wrap tight">
+        <span className="dim small mono">{commit.hash}</span>
+        <span className="dim small">
+          {commit.author} {commit.email && `<${commit.email}>`} · {fmtTime(commit.when)}
+        </span>
+        {commit.branches.map((b) => (
+          <span key={b} className={'chip ref' + (b.includes('/') ? ' remote' : '')}>
+            {b}
+          </span>
+        ))}
+      </div>
+      {commit.diff ? (
+        <DiffView diff={commit.diff} onOpen={onOpenFile} />
+      ) : (
+        <div className="dim small">No file changes in this commit.</div>
+      )}
+    </div>
+  )
 }
 
 function lang(path: string): Extension[] {
@@ -51,7 +105,8 @@ export default function Editor({
   problems: problemTotal,
   problemsOpen,
   onToggleProblems,
-  onStatus
+  onStatus,
+  onOpenFile
 }: Props): React.JSX.Element {
   const file = files.find((f) => f.path === active)
   const opened = useRef<Set<string>>(new Set())
@@ -64,6 +119,7 @@ export default function Editor({
     },
     [activePath]
   )
+  const isCommit = !!file?.commit
   const extensions = useMemo(
     () =>
       activePath
@@ -80,7 +136,7 @@ export default function Editor({
   // tell the language servers which files are open
   useEffect(() => {
     for (const f of files)
-      if (!opened.current.has(f.path)) {
+      if (!f.commit && !opened.current.has(f.path)) {
         opened.current.add(f.path)
         window.luna.lsp.open(f.path, f.content)
       }
@@ -114,20 +170,23 @@ export default function Editor({
   return (
     <>
       <div className="tabs">
-        {files.map((f) => (
+        {files.map((f, i) => (
           <div
             key={f.path}
             className={'tab' + (f.path === active ? ' active' : '')}
+            {...sortableProps(i, (from, to) => setFiles((fs) => move(fs, from, to)))}
             onClick={() => setActive(f.path)}
           >
-            {f.content !== f.saved ? (
+            {f.commit ? (
+              <LuGitCommitHorizontal />
+            ) : f.content !== f.saved ? (
               <span className="dot" />
             ) : f.diff ? (
               <LuFileDiff />
             ) : (
               <LuFileCode />
             )}
-            {f.path.split('/').pop()}
+            {f.commit ? f.commit.short : f.path.split('/').pop()}
             {problems[f.path] ? <span className="problems">{problems[f.path]}</span> : null}
             <span
               className="x"
@@ -150,7 +209,7 @@ export default function Editor({
           <LuTriangleAlert /> Problems
           {problemTotal > 0 && <span className="problems">{problemTotal}</span>}
         </button>
-        {file?.diff && (
+        {file?.diff && !isCommit && (
           <>
             <button
               className="small"
@@ -167,10 +226,13 @@ export default function Editor({
         )}
       </div>
       <div className="fill">
-        {file ? (
+        {file?.commit ? (
+          <CommitPage commit={file.commit} onOpenFile={onOpenFile} />
+        ) : file ? (
           <CodeMirror
             key={file.path + (file.diff ? ':diff' : '')}
             value={file.content}
+            theme={isDark() ? 'dark' : 'light'}
             height="100%"
             extensions={extensions}
             onCreateEditor={(view) => {
