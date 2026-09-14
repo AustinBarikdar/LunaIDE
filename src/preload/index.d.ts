@@ -35,6 +35,8 @@ export type HubStatus = {
   port: number
   project: string
   agents: Record<string, number>
+  /** Why the hub is not listening, e.g. the port is taken by another Luna. */
+  error?: string
 }
 export type AgentName = 'claude' | 'codex'
 export type Preview = { title: string; body: string }[]
@@ -197,6 +199,8 @@ export interface LunaApi {
     kill(id: string): void
     onData(cb: (id: string, data: string) => void): () => void
     onExit(cb: (id: string, code: number) => void): () => void
+    /** Main renamed a terminal's hub identity because the one it asked for was taken. */
+    onAgent(cb: (id: string, agent: string) => void): () => void
   }
 }
 

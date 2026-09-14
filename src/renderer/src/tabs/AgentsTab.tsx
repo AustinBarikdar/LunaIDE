@@ -37,6 +37,8 @@ function AgentRow({
   }, [agent, project, hub?.live.length])
   const live = hub?.live.filter((l) => l === agent || l.startsWith(agent + '-')) ?? []
   const seen = hub?.agents[agent]
+  // a terminal whose identity never reaches the hub is a misconfigured CLI, not an idle one
+  const silent = live.filter((l) => !hub?.agents[l] && !!seen && l !== agent)
   return (
     <div className="card agent-row">
       <div className="card-head">
@@ -75,6 +77,16 @@ function AgentRow({
                 : 'not registered · set up'}
         </span>
         {seen && <span className="chip">last hub call {ago(seen)}</span>}
+        {silent.length > 0 && (
+          <span
+            className="chip warn"
+            title={`${silent.join(', ')} ${silent.length === 1 ? 'has' : 'have'} a terminal but never called the hub. That usually means an old registration, so those terminals report as "${agent}" and share one inbox. Update the setup, then restart them.`}
+            onClick={onSettings}
+            style={{ cursor: 'pointer' }}
+          >
+            <i /> {silent.join(', ')} silent · check setup
+          </span>
+        )}
       </div>
     </div>
   )
@@ -128,6 +140,20 @@ export default function AgentsTab({ project, launch, openTeam }: TabProps): Reac
           launch={launch}
           onSettings={openAgentSettings}
         />
+        {hub?.error && (
+          <div className="ask" style={{ marginTop: 0 }}>
+            <span>{hub.error}</span>
+            <span className="spacer" />
+            <button
+              className="small"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent('luna:settings', { detail: 'hub' }))
+              }
+            >
+              Hub settings
+            </button>
+          </div>
+        )}
         {others.map((name) => (
           <div key={name} className="card-row list-row">
             <Avatar name={name} />

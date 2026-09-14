@@ -219,6 +219,17 @@ export default function App(): React.JSX.Element {
       return [...t, { id, name: label, cmd, agent: identity, ws }]
     })
   }
+  // main has the last word on a terminal's hub identity, so mirror any rename it makes
+  useEffect(
+    () =>
+      window.luna.pty.onAgent((id, agent) =>
+        setTerms((t) => t.map((x) => (x.id === id ? { ...x, agent } : x)))
+      ),
+    []
+  )
+  /** Name a terminal whatever you like; its hub identity does not change. */
+  const renameTerm = (id: string, name: string): void =>
+    setTerms((t) => t.map((x) => (x.id === id ? { ...x, name } : x)))
   /** Drag one terminal onto another to swap their places. */
   const moveTerm = (from: string, to: string): void =>
     setTerms((t) => moveById(t, from, to, (x) => x.id))
@@ -800,6 +811,7 @@ export default function App(): React.JSX.Element {
             onAdd={addTerm}
             onClose={closeTerm}
             onMove={moveTerm}
+            onRename={renameTerm}
           />
         ) : settings ? (
           <ProblemsTab {...tabProps} onClose={toggleProblems} />
@@ -1066,6 +1078,7 @@ export default function App(): React.JSX.Element {
                   onClose={closeTerm}
                   onMoveTerm={moveTerm}
                   onMoveWorkspace={moveWorkspace}
+                  onRenameTerm={renameTerm}
                 />
               </div>
             ) : (

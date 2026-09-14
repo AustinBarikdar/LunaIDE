@@ -4,6 +4,7 @@ import TermView, { Term } from './TermView'
 import { TermIcon } from './TerminalPanel'
 import { rowsFor, TileMode } from './tileLayout'
 import { dragProps } from './dnd'
+import { InlineName } from './ui'
 
 export type { TileMode }
 
@@ -46,7 +47,8 @@ export default function Tiles({
   visible,
   mode,
   onClose,
-  onMove
+  onMove,
+  onRename
 }: {
   ws: string
   tiles: Term[]
@@ -55,6 +57,7 @@ export default function Tiles({
   mode: TileMode
   onClose: (id: string) => void
   onMove: (from: string, to: string) => void
+  onRename: (id: string, name: string) => void
 }): React.JSX.Element {
   const rows = rowsFor(tiles, mode)
   // ponytail: panels are keyed by position, not terminal id, so a remembered size stays with
@@ -69,7 +72,12 @@ export default function Tiles({
         <span className={'tab-ico ' + (t.cmd ?? '')}>
           <TermIcon cmd={t.cmd} />
         </span>
-        <b>{t.name}</b>
+        <InlineName value={t.name} onRename={(name) => onRename(t.id, name)} />
+        {t.agent && (
+          <span className="dim small mono" title="How other agents address this terminal">
+            {t.agent}
+          </span>
+        )}
         <span className="spacer" />
         <button className="icon small ghost" title="Close terminal" onClick={() => onClose(t.id)}>
           <LuX />

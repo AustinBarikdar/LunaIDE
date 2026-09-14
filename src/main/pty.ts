@@ -13,9 +13,28 @@ export const setPtyListener = (cb: () => void): void => {
 /** agent name -> terminal id, for terminals launched via the Claude/Codex buttons */
 const agentTerms = new Map<string, string>()
 
+/**
+ * First identity nobody is using: claude, then claude-2, claude-3…
+ *
+ * ponytail: the renderer numbers terminals from its own list, which it loses on a reload while
+ * the ptys live on. Two terminals answering to one identity means one shared inbox — messages
+ * meant for one agent get read by the other — so main has the last word on who is who.
+ */
+export function freeIdentity(wanted: string, taken: Iterable<string>): string {
+  const used = new Set(taken)
+  if (!used.has(wanted)) return wanted
+  const base = wanted.replace(/-\d+$/, '')
+  for (let n = 2; ; n++) if (!used.has(`${base}-${n}`)) return `${base}-${n}`
+}
+
 export function spawnPty(id: string, cwd: string, wc: WebContents, agent?: string): void {
   killPty(id)
-  if (agent) agentTerms.set(agent, id)
+  const identity = agent ? freeIdentity(agent, agentsWithTerminal()) : undefined
+  if (identity) {
+    agentTerms.set(identity, id)
+    // tell the renderer when it asked for a name that was taken
+    if (identity !== agent) wc.send('pty-agent', id, identity)
+  }
   const shell = process.env.SHELL ?? '/bin/zsh'
   // ponytail: login shell so ~/.local/bin (claude) and nvm (codex) are on PATH
   const p = pty.spawn(shell, ['-l'], {
@@ -27,7 +46,7 @@ export function spawnPty(id: string, cwd: string, wc: WebContents, agent?: strin
     env: {
       ...process.env,
       TERM_PROGRAM: 'luna',
-      ...(agent ? { LUNA_AGENT: agent } : {})
+      ...(identity ? { LUNA_AGENT: identity } : {})
     } as Record<string, string>
   })
   buffers.set(id, [])

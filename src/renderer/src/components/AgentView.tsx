@@ -21,6 +21,7 @@ type Props = {
   onClose: (id: string) => void
   /** Drag a terminal onto another to swap their places. */
   onMoveTerm: (from: string, to: string) => void
+  onRenameTerm: (id: string, name: string) => void
   onMoveWorkspace: (from: string, to: string) => void
 }
 
@@ -102,7 +103,7 @@ export default function AgentView(p: Props): React.JSX.Element {
         </button>
         <span className="spacer" />
         <span className="dim small" style={{ marginRight: 4 }}>
-          <LuPencil /> double-click a tab to rename
+          <LuPencil /> double-click a tab or a terminal to rename
         </span>
         <span className="seg-tabs" style={{ marginRight: 6 }}>
           {MODES.map((m) => (
@@ -144,6 +145,7 @@ export default function AgentView(p: Props): React.JSX.Element {
                 mode={mode}
                 onClose={p.onClose}
                 onMove={p.onMoveTerm}
+                onRename={p.onRenameTerm}
               />
             )}
           </div>

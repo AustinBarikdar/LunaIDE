@@ -39,7 +39,8 @@ import {
   readEvents,
   graph,
   appendEvent,
-  sendMessage
+  sendMessage,
+  safe as vaultSafe
 } from './vault'
 
 let win: BrowserWindow
@@ -204,7 +205,9 @@ app.whenReady().then(() => {
     spawnPty(id, cwd, e.sender, agent)
   )
   setPtyListener(() => notifyHub(hubStatus()))
-  setInboxHooks((agent) => {
+  setInboxHooks((agent, from) => {
+    // never prompt an agent about something it sent itself
+    if (from && vaultSafe(from) === agent) return
     const ok = sendToAgent(agent, INBOX_NUDGE)
     if (ok && project)
       appendEvent(project, {

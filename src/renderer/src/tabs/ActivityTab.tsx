@@ -115,7 +115,7 @@ const COLOR: Record<string, string> = {
 }
 
 /** Send a note into an agent's inbox; it reads it on its next turn. */
-function Say({ agents }: { agents: string[] }): React.JSX.Element {
+function Say({ agents, live }: { agents: string[]; live: string[] }): React.JSX.Element {
   const [to, setTo] = useState('')
   const [text, setText] = useState('')
   const [note, setNote] = useState('')
@@ -139,6 +139,7 @@ function Say({ agents }: { agents: string[] }): React.JSX.Element {
           {agents.map((a) => (
             <option key={a} value={a}>
               {a}
+              {live.includes(a) ? '' : ' (no terminal)'}
             </option>
           ))}
         </select>
@@ -170,7 +171,10 @@ export default function ActivityTab({ project }: TabProps): React.JSX.Element {
     }
   }, [project])
   const feed = [...events].reverse()
-  const agents = [
+  // "Right now" is about terminals that are open: an agent whose terminal was closed is history,
+  // and history lives in the timeline and the chat below.
+  const agents = live.filter((n) => n && n !== 'you' && n !== 'luna')
+  const seen = [
     ...new Set(
       [...live, ...events.flatMap((e) => [e.from, e.to ?? ''])].filter(
         (n) => n && n !== 'you' && n !== 'luna'
@@ -179,9 +183,9 @@ export default function ActivityTab({ project }: TabProps): React.JSX.Element {
   ]
   const lastLeader = [...events].reverse().find((e) => e.kind === 'dispatch')?.to
   const chatTo =
-    lastLeader && agents.includes(lastLeader)
-      ? [lastLeader, ...agents.filter((a) => a !== lastLeader)]
-      : agents
+    lastLeader && seen.includes(lastLeader)
+      ? [lastLeader, ...seen.filter((a) => a !== lastLeader)]
+      : seen
   const steps: Step[] = events.slice(-40).map((e, i) => ({
     id: String(i) + e.t,
     color: COLOR[e.from] ?? '#6c5ce7',
@@ -244,7 +248,7 @@ export default function ActivityTab({ project }: TabProps): React.JSX.Element {
           </div>
         )}
         {tab === 'timeline' && steps.length > 0 && <Timeline steps={steps} />}
-        {tab === 'chat' && chatTo.length > 0 && <Say agents={chatTo} />}
+        {tab === 'chat' && chatTo.length > 0 && <Say agents={chatTo} live={live} />}
         {tab === 'chat' && feed.length === 0 ? (
           <EmptyState
             icon={<LuMessagesSquare />}

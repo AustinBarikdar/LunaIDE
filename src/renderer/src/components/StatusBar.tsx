@@ -102,14 +102,20 @@ export default function StatusBar(props: Props): React.JSX.Element {
         )}
         <button
           title={
-            props.hub?.running ? `Hub connected on port ${props.hub.port}` : 'Hub disconnected'
+            props.hub?.running
+              ? `Hub connected on port ${props.hub.port}`
+              : (props.hub?.error ?? 'Hub disconnected')
           }
           aria-label="Open hub settings"
           onClick={props.onHub}
         >
           <LuRadio />
           <span className="status-hub-label">
-            {props.hub?.running ? 'Hub connected' : 'Hub offline'}
+            {props.hub?.running
+              ? 'Hub connected'
+              : props.hub?.error
+                ? 'Hub port in use'
+                : 'Hub offline'}
           </span>
         </button>
       </div>

@@ -97,7 +97,8 @@ const api: LunaApi = {
     resize: (id, cols, rows) => ipcRenderer.send('pty-resize', id, cols, rows),
     kill: (id) => ipcRenderer.send('pty-kill', id),
     onData: (cb) => on('pty-data', cb),
-    onExit: (cb) => on('pty-exit', cb)
+    onExit: (cb) => on('pty-exit', cb),
+    onAgent: (cb) => on('pty-agent', cb)
   }
 }
 

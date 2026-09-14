@@ -1,12 +1,16 @@
 // Pure registration-status rules (no imports, so `node --test` can load them).
 export type AgentStatus = { registered: boolean; outdated?: boolean }
 
-/** Claude: .mcp.json must have the luna server AND the per-terminal identity header. */
+/** Claude: .mcp.json must have the luna server AND carry the terminal's identity in url + header. */
 export function claudeStatus(mcpJson: unknown): AgentStatus {
-  const luna = (mcpJson as { mcpServers?: Record<string, { headers?: Record<string, string> }> })
-    ?.mcpServers?.luna
+  const luna = (
+    mcpJson as {
+      mcpServers?: Record<string, { url?: string; headers?: Record<string, string> }>
+    }
+  )?.mcpServers?.luna
   if (!luna) return { registered: false }
-  return luna.headers?.['X-Luna-Agent']
+  const carries = (v?: string): boolean => !!v && v.includes('LUNA_AGENT')
+  return carries(luna.headers?.['X-Luna-Agent']) && carries(luna.url)
     ? { registered: true }
     : { registered: false, outdated: true }
 }

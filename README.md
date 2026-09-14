@@ -19,7 +19,7 @@ Several effects are ported from [animata.design](https://animata.design) (MIT) t
 
 On launch Luna asks how you want to work (tick "remember" to skip the question; the titlebar switch changes it any time):
 
-- **Agent view**: no editor. Workspaces run as tabs across the top (rename one to "Frontend", add "Backend"…), and each holds agent terminals docked with draggable dividers. Three layouts sit in the workspace bar: **Grid** balances them (two side by side, four corners at three or four, three across from five up), **Columns** keeps them all in one row, **Rows** stacks them. Drag any divider to size a pane; Luna remembers the sizes per workspace and layout, including after a restart.
+- **Agent view**: no editor. Workspaces run as tabs across the top, and terminals carry names of their own: double-click either to rename (call one "Frontend" and another "Backend"). A renamed terminal keeps the hub identity agents address it by, shown next to its name, and each holds agent terminals docked with draggable dividers. Three layouts sit in the workspace bar: **Grid** balances them (two side by side, four corners at three or four, three across from five up), **Columns** keeps them all in one row, **Rows** stacks them. Drag any divider to size a pane; Luna remembers the sizes per workspace and layout, including after a restart.
 - **IDE view**: files, editor, and the terminals as tabs in a bottom panel.
 
 Terminals belong to Luna, not to a view: switching views or workspaces keeps every agent running and replays its recent output when it comes back on screen.
@@ -86,7 +86,7 @@ Luna serves `http://127.0.0.1:4141/mcp/<agent>` while a project is open. The pat
 
 **Team prompt** (Agents view header, flower menu, or the command palette) opens a full-size composer. Every open agent terminal is a team member with its own hub identity: the first Claude terminal is `claude`, the second `claude-2`, and so on (Luna passes it as `LUNA_AGENT`; Claude sends it as an `X-Luna-Agent` header via `.mcp.json`, Codex via `env_http_headers`). Pick which terminal **plans** and tick which ones **code**, write the job, send. The planner is told to search shared memory, split the job, and delegate through `delegate`; if it is not also a coder it never writes code itself. Each task lands in that terminal's inbox and Luna types a nudge into it so it starts right away. Coders report back with `send_message` to the planner.
 
-**Registration** lives in Settings → Agents (Register / Re-register with a preview of the exact changes). When you launch an agent that isn't registered yet, a notification in the bottom-right corner offers to do it in one click.
+**Registration** lives in Settings → Agents (Register / Re-register with a preview of the exact changes). When you launch an agent that isn't registered yet, a notification in the bottom-right corner offers to do it in one click. Each terminal's identity travels in both the URL and a header, so a CLI that drops custom headers still identifies itself. Registration is read when the CLI starts, so restart terminals that were already running: until then they all report under the base name and share one inbox, which is what makes a planner appear to hand tasks to itself and read an empty inbox. The Agents view flags a terminal whose identity never reaches the hub.
 
 ## Linting, language servers, and plugins
 

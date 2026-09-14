@@ -10,6 +10,8 @@ const codexConfig = (): string => join(process.env.HOME ?? '', '.codex', 'config
 export type Preview = { title: string; body: string }[]
 
 const url = (port: number, agent: AgentName): string => `http://127.0.0.1:${port}/mcp/${agent}`
+/** Claude expands this in both the URL and the header, so a terminal identifies itself twice over. */
+const AGENT_VAR = '${LUNA_AGENT:-claude}'
 const readJson = (f: string): Record<string, unknown> =>
   existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : {}
 
@@ -19,13 +21,14 @@ function claudeFiles(
 ): { path: string; content: Record<string, unknown> }[] {
   const mcp = join(project, '.mcp.json')
   const mcpJson = readJson(mcp) as { mcpServers?: Record<string, unknown> }
-  // ${LUNA_AGENT:-claude} is expanded by Claude Code, so each Luna terminal reports its own identity
+  // the identity goes in the path as well as the header: a CLI build that drops custom headers
+  // would otherwise make every terminal "claude", so they would all share one inbox
   mcpJson.mcpServers = {
     ...mcpJson.mcpServers,
     luna: {
       type: 'http',
-      url: url(port, 'claude'),
-      headers: { 'X-Luna-Agent': '${LUNA_AGENT:-claude}' }
+      url: `http://127.0.0.1:${port}/mcp/${AGENT_VAR}`,
+      headers: { 'X-Luna-Agent': AGENT_VAR }
     }
   }
 
@@ -64,7 +67,7 @@ export async function register(agent: AgentName, project: string, port: number):
       mkdirSync(dirname(f.path), { recursive: true })
       writeFileSync(f.path, JSON.stringify(f.content, null, 2) + '\n')
     }
-    return 'Wrote .mcp.json and .claude/settings.local.json. Start claude in this project and approve the "luna" server when prompted (once).'
+    return 'Wrote .mcp.json and .claude/settings.local.json. Approve the "luna" server when prompted (once). Restart any Claude terminals already running: they loaded the old settings, so they would all report as "claude" and share one inbox.'
   }
   const r = await sh(`codex mcp add luna --url ${url(port, 'codex')}`)
   if (r.code !== 0) return `codex mcp add failed (${r.code}):\n${r.out}`
@@ -78,7 +81,7 @@ export async function register(agent: AgentName, project: string, port: number):
         toml.replace(/^\[mcp_servers\.luna\]\s*$/m, (m) => `${m}\n${CODEX_HEADER_LINE}`)
       )
   }
-  return 'Registered in ~/.codex/config.toml. Restart codex; it will connect to luna.'
+  return 'Registered in ~/.codex/config.toml. Restart any Codex terminals already running: they loaded the old settings, so they would all report as "codex" and share one inbox.'
 }
 
 export type { AgentStatus }
