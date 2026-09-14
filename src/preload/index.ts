@@ -58,6 +58,7 @@ const api: LunaApi = {
   },
   summaries: {
     list: () => ipcRenderer.invoke('summaries-list'),
+    clear: () => ipcRenderer.invoke('summaries-clear'),
     rollups: () => ipcRenderer.invoke('rollups-list'),
     rollup: () => ipcRenderer.invoke('rollup'),
     onChanged: (cb) => on('vault-changed', cb)

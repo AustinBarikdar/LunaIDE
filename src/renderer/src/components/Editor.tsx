@@ -19,7 +19,9 @@ import {
   LuFileDiff,
   LuEraser,
   LuTriangleAlert,
-  LuGitCommitHorizontal
+  LuGitCommitHorizontal,
+  LuChevronLeft,
+  LuChevronRight
 } from 'react-icons/lu'
 import { diffOverlay } from './diffOverlay'
 import { EmptyState } from './ui'
@@ -29,6 +31,8 @@ import { isDark } from './theme'
 import { move } from './dnd'
 import { sortableProps } from './sortable'
 import type { CommitDetail } from '../../../preload/index.d'
+import type { Flow } from '../tabs/types'
+import { splitByFile } from './diff'
 import { LuCode } from 'react-icons/lu'
 import { languageName, type EditorStatus } from './commands'
 
@@ -38,6 +42,8 @@ export type OpenFile = {
   content: string
   saved: string
   diff?: string
+  /** The summary this diff came from: its notes become bubbles, and the editor walks them. */
+  flow?: Flow
   commit?: CommitDetail
 }
 
@@ -50,8 +56,54 @@ type Props = {
   problemsOpen: boolean
   onToggleProblems: () => void
   onStatus: (status: EditorStatus) => void
-  /** Open one file of a commit with its diff highlighted. */
-  onOpenFile: (relPath: string, fileDiff: string) => void
+  /** Open one file of a commit or a flow with its diff highlighted. */
+  onOpenFile: (relPath: string, fileDiff: string, flow?: Flow) => void
+}
+
+/** Walk a summary's notes step by step; steps in other files open them. */
+function FlowBar({
+  path,
+  flow,
+  onStep
+}: {
+  path: string
+  flow: Flow
+  onStep: (step: number) => void
+}): React.JSX.Element {
+  const total = flow.notes.length
+  const inFile = flow.notes
+    .map((n, i) => ({ n, step: i + 1 }))
+    .filter(({ n }) => path.endsWith(n.file) || n.file.endsWith(path))
+  const current = flow.focus ?? inFile[0]?.step ?? 1
+  const note = flow.notes[current - 1]
+  return (
+    <div className="flow-bar">
+      <span className="flow-num">{current}</span>
+      <span className="flow-bar-why" title={note?.why}>
+        {note?.why ?? ''}
+      </span>
+      <span className="dim small">
+        {current} of {total}
+        {inFile.length < total && ` · ${inFile.length} in this file`}
+      </span>
+      <button
+        className="icon small ghost"
+        title="Previous step"
+        disabled={current <= 1}
+        onClick={() => onStep(current - 1)}
+      >
+        <LuChevronLeft />
+      </button>
+      <button
+        className="icon small ghost"
+        title="Next step"
+        disabled={current >= total}
+        onClick={() => onStep(current + 1)}
+      >
+        <LuChevronRight />
+      </button>
+    </div>
+  )
 }
 
 /** A commit as a full-width page: message, branches, and every change in green and red. */
@@ -113,8 +165,30 @@ export default function Editor({
   const [problems, setProblems] = useState<Record<string, number>>({})
   const activePath = file?.path
   const activeDiff = file?.diff
+  const activeFlow = file?.flow
+  const activeNotes = activeFlow?.notes
+  const activeFocus = activeFlow?.focus
+
+  // ponytail: committing every keystroke to App state re-rendered the whole window; buffer it and flush ~200ms after typing pauses (same idiom as lspExtensions.ts's change sync).
+  const pendingEdit = useRef<{
+    path: string
+    value: string
+    timer: ReturnType<typeof setTimeout>
+  } | null>(null)
+  const flushEdit = (): void => {
+    const p = pendingEdit.current
+    if (!p) return
+    clearTimeout(p.timer)
+    pendingEdit.current = null
+    setFiles((fs) => fs.map((f) => (f.path === p.path ? { ...f, content: p.value } : f)))
+  }
+  useEffect(() => {
+    window.addEventListener('beforeunload', flushEdit)
+    return () => window.removeEventListener('beforeunload', flushEdit)
+  }, [])
   useEffect(
     () => () => {
+      flushEdit()
       if (activePath) unregisterView(activePath)
     },
     [activePath]
@@ -127,10 +201,12 @@ export default function Editor({
             ...lang(activePath),
             search(),
             lspExtensions(activePath),
-            ...(activeDiff ? [diffOverlay(activeDiff)] : [])
+            ...(activeDiff
+              ? [diffOverlay(activeDiff, activeNotes ?? [], activePath, activeFocus ?? 0)]
+              : [])
           ]
         : [],
-    [activePath, activeDiff]
+    [activePath, activeDiff, activeNotes, activeFocus]
   )
 
   // tell the language servers which files are open
@@ -160,6 +236,13 @@ export default function Editor({
       }),
     []
   )
+
+  const [dark, setDark] = useState(isDark())
+  useEffect(() => {
+    const onTheme = (): void => setDark(isDark())
+    window.addEventListener('luna:theme', onTheme)
+    return () => window.removeEventListener('luna:theme', onTheme)
+  }, [])
 
   const close = (path: string): void => {
     const rest = files.filter((f) => f.path !== path)
@@ -214,17 +297,43 @@ export default function Editor({
             <button
               className="small"
               title="Clear diff highlights"
-              onClick={() =>
+              onClick={() => {
+                flushEdit()
                 setFiles((fs) =>
-                  fs.map((f) => (f.path === file.path ? { ...f, diff: undefined } : f))
+                  fs.map((f) =>
+                    f.path === file.path ? { ...f, diff: undefined, flow: undefined } : f
+                  )
                 )
-              }
+              }}
             >
               <LuEraser /> Clear diff
             </button>
           </>
         )}
       </div>
+      {file?.flow && !isCommit && (
+        <FlowBar
+          path={file.path}
+          flow={file.flow}
+          onStep={(step) => {
+            const note = file.flow!.notes[step - 1]
+            const here = file.path.endsWith(note.file) || note.file.endsWith(file.path)
+            if (here)
+              setFiles((fs) =>
+                fs.map((f) =>
+                  f.path === file.path ? { ...f, flow: { ...file.flow!, focus: step } } : f
+                )
+              )
+            else {
+              const chunk = splitByFile(file.flow!.diff).find(
+                (c) =>
+                  c.path === note.file || c.path.endsWith(note.file) || note.file.endsWith(c.path)
+              )
+              onOpenFile(note.file, chunk?.diff ?? '', { ...file.flow!, focus: step })
+            }
+          }}
+        />
+      )}
       <div className="fill">
         {file?.commit ? (
           <CommitPage commit={file.commit} onOpenFile={onOpenFile} />
@@ -232,7 +341,7 @@ export default function Editor({
           <CodeMirror
             key={file.path + (file.diff ? ':diff' : '')}
             value={file.content}
-            theme={isDark() ? 'dark' : 'light'}
+            theme={dark ? 'dark' : 'light'}
             height="100%"
             extensions={extensions}
             onCreateEditor={(view) => {
@@ -256,9 +365,10 @@ export default function Editor({
                 })
               }
             }}
-            onChange={(v) =>
-              setFiles((fs) => fs.map((f) => (f.path === file.path ? { ...f, content: v } : f)))
-            }
+            onChange={(v) => {
+              clearTimeout(pendingEdit.current?.timer)
+              pendingEdit.current = { path: file.path, value: v, timer: setTimeout(flushEdit, 200) }
+            }}
           />
         ) : (
           <EmptyState

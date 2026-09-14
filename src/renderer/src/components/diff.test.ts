@@ -1,24 +1,48 @@
-// ponytail: the one parser in the renderer. Run: npm test
+// ponytail: anchor placement decides whether a note lands on the right line. Run: npm test
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseDiff, splitByFile, diffLineMap } from './diff.ts'
+import { placeNotes } from './diff.ts'
 
-test('parseDiff', () => {
-  const kinds = parseDiff(
-    'diff --git a/x.ts b/x.ts\nindex 1..2\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1,2 @@\n old\n+new\n-gone'
-  ).map((l) => l.kind)
-  assert.deepEqual(kinds, ['file', 'meta', 'meta', 'meta', 'hunk', 'ctx', 'add', 'del'])
-  assert.equal(parseDiff('diff --git a/src/a.ts b/src/a.ts')[0].text, 'src/a.ts')
+const doc = [
+  'const a = 1',
+  'function greet(name) {',
+  '  return `hi ${name}`',
+  '}',
+  'greet("x")'
+].join('\n')
+const map = { added: [2, 3, 4], deleted: [{ line: 5, text: 'sayHi("x")' }] }
+
+test('placeNotes pins notes to added lines, removed lines, and keeps step numbers', () => {
+  const placed = placeNotes(
+    doc,
+    map,
+    [
+      { file: 'src/app.ts', anchor: 'function greet(name)', why: 'the new greeting' },
+      { file: 'other.ts', anchor: 'nothing here', why: 'belongs to another file' },
+      { file: 'src/app.ts', anchor: 'sayHi("x")', why: 'the old call went away', kind: 'removed' },
+      { file: 'app.ts', anchor: '  return   `hi ${name}`  ', why: 'whitespace is forgiven' },
+      { file: 'src/app.ts', anchor: 'const a = 1', why: 'an unchanged line still gets a bubble' }
+    ],
+    '/Users/me/proj/src/app.ts'
+  )
+  assert.deepEqual(
+    placed.map((p) => [p.step, p.line, p.removed]),
+    [
+      [1, 2, false],
+      [3, 5, true],
+      [4, 3, false],
+      [5, 1, false]
+    ]
+  )
 })
 
-test('splitByFile + diffLineMap', () => {
-  const d =
-    'diff --git a/a.ts b/a.ts\n@@ -1,3 +1,3 @@\n keep\n-old\n+new\n keep2\ndiff --git a/b.ts b/b.ts\n@@ -0,0 +1,2 @@\n+x\n+y'
-  const files = splitByFile(d)
-  assert.deepEqual(
-    files.map((f) => f.path),
-    ['a.ts', 'b.ts']
+test('placeNotes prefers an added line when the anchor appears twice', () => {
+  const twice = ['greet()', 'greet()'].join('\n')
+  const placed = placeNotes(
+    twice,
+    { added: [2], deleted: [] },
+    [{ file: 'a', anchor: 'greet()', why: '' }],
+    'a'
   )
-  assert.deepEqual(diffLineMap(files[0].diff), { added: [2], deleted: [{ line: 2, text: 'old' }] })
-  assert.deepEqual(diffLineMap(files[1].diff), { added: [1, 2], deleted: [] })
+  assert.equal(placed[0].line, 2)
 })

@@ -76,7 +76,7 @@ function makeServer(agent: string): McpServer {
     'post_summary',
     {
       description:
-        'Post a short summary of what you just did or learned. Luna saves it to the shared vault, captures the git diff of the files you list, and shows both (diff highlighted) in the Summaries tab. Call this after each meaningful change.',
+        'Post a short summary of what you just did or learned. Luna saves it to the shared vault, captures the git diff of the files you list, and shows both (diff highlighted) in the Summaries tab. Add `notes` so a developer who does not know the code can follow it: each note pins a plain-language explanation to a line you added or removed, and their order is the flow of the change. Call this after each meaningful change.',
       inputSchema: {
         title: z.string().describe('One-line title'),
         text: z.string().describe('Markdown body: what changed and why'),
@@ -89,12 +89,33 @@ function makeServer(agent: string): McpServer {
         diff: z
           .string()
           .optional()
-          .describe('Optional unified diff to show instead of the auto-captured one')
+          .describe('Optional unified diff to show instead of the auto-captured one'),
+        notes: z
+          .array(
+            z.object({
+              file: z.string().describe('path relative to the project'),
+              anchor: z
+                .string()
+                .describe(
+                  'an exact snippet of ONE line you added (or removed) — Luna finds it and pins the note there'
+                ),
+              why: z
+                .string()
+                .describe(
+                  'plain language for someone who does not know this codebase: what this line does and why it is here'
+                ),
+              kind: z.enum(['added', 'removed']).optional().describe('default added')
+            })
+          )
+          .optional()
+          .describe(
+            'Explain the change line by line. One note per meaningful addition or removal, in the order the change flows (what runs first, then what it calls…). Luna numbers them as steps and shows each as a bubble on that line in the editor.'
+          )
       }
     },
-    async ({ title, text: body, files, diff }) => {
+    async ({ title, text: body, files, diff, notes }) => {
       const d = diff ?? (await diffFor(p(), files ?? []))
-      const file = vault.postSummary(p(), agent, title, body, d)
+      const file = vault.postSummary(p(), agent, title, body, d, notes ?? [])
       vault.appendEvent(p(), { kind: 'summary', from: agent, title, text: body.slice(0, 600) })
       return text(`Saved: ${file}`)
     }

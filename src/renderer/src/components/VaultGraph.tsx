@@ -19,6 +19,11 @@ const AGENT: Record<string, string> = {
 
 type P = GraphNode & { x: number; y: number; vx: number; vy: number }
 
+const hexToRgb = (hex: string): string => {
+  const m = hex.trim().match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i)
+  return m ? `${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)}` : '28,28,34'
+}
+
 export default function VaultGraph({
   graph,
   onOpen
@@ -29,7 +34,15 @@ export default function VaultGraph({
   const canvas = useRef<HTMLCanvasElement>(null)
   const pts = useRef<P[]>([])
   const [hover, setHover] = useState<P | null>(null)
+  const hoverRef = useRef<P | null>(null)
   const drag = useRef<P | null>(null)
+  const wake = useRef<((resetAlpha: boolean) => void) | null>(null)
+  const redraw = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    hoverRef.current = hover
+    redraw.current?.() // sim may be settled/stopped; still need the hover highlight to repaint
+  }, [hover])
 
   useEffect(() => {
     const prev = new Map(pts.current.map((p) => [p.id, p]))
@@ -51,6 +64,11 @@ export default function VaultGraph({
     const ctx = el.getContext('2d')!
     let raf = 0
     let alpha = 1
+    let fgRgb = hexToRgb(getComputedStyle(document.documentElement).getPropertyValue('--fg'))
+    const updateFg = (): void => {
+      fgRgb = hexToRgb(getComputedStyle(document.documentElement).getPropertyValue('--fg'))
+      draw()
+    }
     const byId = (): Map<string, P> => new Map(pts.current.map((p) => [p.id, p]))
     const step = (): void => {
       const ps = pts.current
@@ -107,13 +125,14 @@ export default function VaultGraph({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, W, H)
       const m = byId()
+      const hover = hoverRef.current
       ctx.lineWidth = 1
       for (const e of graph.edges) {
         const a = m.get(e.a)
         const b = m.get(e.b)
         if (!a || !b) continue
         const lit = hover && (hover.id === a.id || hover.id === b.id)
-        ctx.strokeStyle = lit ? 'rgba(108,92,231,0.7)' : 'rgba(28,28,34,0.13)'
+        ctx.strokeStyle = lit ? 'rgba(108,92,231,0.7)' : `rgba(${fgRgb},0.13)`
         ctx.beginPath()
         ctx.moveTo(a.x * W, a.y * H)
         ctx.lineTo(b.x * W, b.y * H)
@@ -127,7 +146,7 @@ export default function VaultGraph({
         ctx.fillStyle = color
         ctx.globalAlpha =
           hover &&
-          hover !== p &&
+          hover.id !== p.id &&
           !graph.edges.some(
             (e) => (e.a === p.id && e.b === hover.id) || (e.b === p.id && e.a === hover.id)
           )
@@ -138,9 +157,9 @@ export default function VaultGraph({
         ctx.strokeStyle = 'rgba(255,255,255,0.9)'
         ctx.lineWidth = 1.5
         ctx.stroke()
-        if (p.type === 'agent' || p === hover || p.size > 2.5) {
+        if (p.type === 'agent' || p.id === hover?.id || p.size > 2.5) {
           ctx.font = `${p.type === 'agent' ? '600 12px' : '11px'} -apple-system, sans-serif`
-          ctx.fillStyle = 'rgba(28,28,34,0.85)'
+          ctx.fillStyle = `rgba(${fgRgb},0.85)`
           ctx.textAlign = 'center'
           ctx.fillText(
             p.label.length > 34 ? p.label.slice(0, 33) + '…' : p.label,
@@ -153,11 +172,26 @@ export default function VaultGraph({
     const loop = (): void => {
       step()
       draw()
+      if (alpha <= 0.06 && !drag.current) {
+        raf = 0 // settled and not being dragged: stop ticking until something wakes us
+        return
+      }
       raf = requestAnimationFrame(loop)
     }
+    wake.current = (resetAlpha) => {
+      if (resetAlpha) alpha = 1
+      if (!raf) raf = requestAnimationFrame(loop)
+    }
+    redraw.current = draw
+    window.addEventListener('luna:theme', updateFg)
     loop()
-    return () => cancelAnimationFrame(raf)
-  }, [graph, hover])
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('luna:theme', updateFg)
+      wake.current = null
+      redraw.current = null
+    }
+  }, [graph])
 
   const at = (e: React.MouseEvent): P | null => {
     const el = canvas.current!
@@ -188,7 +222,10 @@ export default function VaultGraph({
             drag.current.y = (e.clientY - r.top) / r.height
           } else setHover(at(e))
         }}
-        onMouseDown={(e) => (drag.current = at(e))}
+        onMouseDown={(e) => {
+          drag.current = at(e)
+          if (drag.current) wake.current?.(true)
+        }}
         onMouseUp={() => (drag.current = null)}
         onMouseLeave={() => {
           drag.current = null

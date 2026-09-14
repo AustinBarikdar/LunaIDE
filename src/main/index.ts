@@ -40,6 +40,7 @@ import {
   graph,
   appendEvent,
   sendMessage,
+  clearSummaries,
   safe as vaultSafe
 } from './vault'
 
@@ -126,8 +127,12 @@ function openProject(dir: string): string {
   watcher?.close()
   // ponytail: recursive fs.watch is native on macOS; swap for chokidar if Linux support matters
   watcher = watch(dir, { recursive: true }, (_e, name) => {
-    if (name && !/node_modules|\.git\//.test(String(name)))
-      win.webContents.send('file-changed', join(dir, String(name)))
+    const rel = String(name ?? '')
+    // build output and the local vault change constantly and would refresh the tree and re-run
+    // git status for nothing; the vault has watchers of its own
+    if (!rel || /node_modules|\.git\/|^(out|dist)\/|^\.luna\/vault\//.test(rel)) return
+    if (/(^|\/)(eslint\.config\.[cm]?js|\.eslintrc[^/]*)$/.test(rel)) lsp.eslintConfigChanged()
+    win.webContents.send('file-changed', join(dir, rel))
   })
   project = dir
   projectSearch.setProject(dir)
@@ -190,6 +195,7 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('hub-status', () => hubStatus())
   ipcMain.handle('summaries-list', () => (project ? readSummaries(project, 50) : []))
+  ipcMain.handle('summaries-clear', () => (project ? clearSummaries(project) : 0))
   ipcMain.handle('rollups-list', () => (project ? readRollups(project, 3) : []))
   ipcMain.handle('rollup', () => rollup(project))
   ipcMain.handle('git', (_e, op: keyof typeof gitOps, ...args: string[]) =>
@@ -227,7 +233,7 @@ app.whenReady().then(() => {
     const composed =
       `You are the team leader (planner) for this project. Team members reachable through the luna MCP tools: ${members.join(', ') || '(none yet; call list_agents to check)'}. ${roles} ` +
       `First call the luna memory_search tool with a few keywords from the job to pull in what the team already knows (shared vault + past summaries). Each delegated task must include the files to touch and acceptance criteria; coders cannot see your context. ` +
-      `When you finish your part, call post_summary with the files you changed. Team members report back to your inbox, so call read_inbox before declaring the whole job done.
+      `When you finish your part, call post_summary with the files you changed and \`notes\` that explain each added or removed line in plain language, in the order the change flows — the developer reads those as numbered bubbles on the code. Team members report back to your inbox, so call read_inbox before declaring the whole job done.
 
 THE JOB:
 ${prompt}`

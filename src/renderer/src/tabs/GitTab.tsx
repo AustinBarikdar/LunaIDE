@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   LuRefreshCw,
   LuGitBranch,
@@ -162,16 +162,26 @@ export default function GitTab({
   const [detail, setDetail] = useState<CommitDetail | null>(null)
   const [busy, setBusy] = useState(false)
 
+  const openRef = useRef(open)
+  openRef.current = open
+  const projectRef = useRef(project)
+  projectRef.current = project
+
   const refresh = useCallback((): void => {
     if (!project) return
+    const forProject = project
     window.luna.git.status().then((s) => {
+      if (projectRef.current !== forProject) return
       setSt(s)
       setRemote(s.remote)
-      setRepoName((n) => n || project.split('/').filter(Boolean).pop() || '')
+      setRepoName((n) => n || forProject.split('/').filter(Boolean).pop() || '')
       if (s.upstream) setAsk(false)
     })
-    window.luna.git.log().then(setLog)
+    window.luna.git.log().then((l) => {
+      if (projectRef.current === forProject) setLog(l)
+    })
   }, [project])
+  useEffect(() => setRepoName(''), [project])
   useEffect(refresh, [refresh])
   useEffect(() => {
     window.luna.git.gh().then(setGh)
@@ -187,14 +197,19 @@ export default function GitTab({
     window.dispatchEvent(new Event('luna-git-changed'))
   }
   const commit = (): void => {
-    if (msg) run('git commit', () => window.luna.git.commit(msg)).then(() => setMsg(''))
+    if (msg && !busy && st && st.changes.length > 0)
+      run('git commit', () => window.luna.git.commit(msg)).then(() => setMsg(''))
   }
   const pick = (hash: string): void => {
-    if (hash === open) return setOpen('')
+    if (hash === open) {
+      setOpen('')
+      return
+    }
     setOpen(hash)
     setDetail(null)
     window.luna.git.show(hash).then((d) => {
-      setDetail((cur) => (cur?.hash === hash ? cur : d))
+      if (openRef.current !== hash) return
+      setDetail(d)
       // the sidebar is narrow: put the whole commit in the editor as well
       openCommit?.(d)
     })

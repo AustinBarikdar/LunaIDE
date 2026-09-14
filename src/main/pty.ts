@@ -50,10 +50,12 @@ export function spawnPty(id: string, cwd: string, wc: WebContents, agent?: strin
     } as Record<string, string>
   })
   buffers.set(id, [])
+  // ponytail: running byte count; summing every chunk on every chunk was O(n²) for chatty output
+  let total = 0
   p.onData((data) => {
     const b = buffers.get(id)!
     b.push(data)
-    let total = b.reduce((n, x) => n + x.length, 0)
+    total += data.length
     while (total > MAX_BUF && b.length > 1) total -= b.shift()!.length
     wc.send('pty-data', id, data)
   })

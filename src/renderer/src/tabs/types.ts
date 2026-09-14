@@ -1,11 +1,17 @@
-import type { CommitDetail, Settings } from '../../../preload/index.d'
+import type { CommitDetail, Note, Settings } from '../../../preload/index.d'
+
+/** A summary's explanation of its change: ordered notes, the whole diff, and the step in view. */
+export type Flow = { notes: Note[]; diff: string; focus?: number }
 
 export type TabProps = {
   project: string | null
   settings: Settings
   saveSetting: (p: Partial<Settings>) => Promise<void>
-  /** Open a file in the editor with a diff overlay (added lines green, removed lines red). */
-  openDiff: (relPath: string, fileDiff: string) => void
+  /**
+   * Open a file in the editor with a diff overlay (added lines green, removed lines red).
+   * With a `flow`, the summary's notes become numbered bubbles and the editor can walk them.
+   */
+  openDiff: (relPath: string, fileDiff: string, flow?: Flow) => void
   /** Launch an agent terminal in the current workspace. */
   launch: (agent: 'claude' | 'codex') => void
   /** Open a file in the editor and put the cursor at line/ch (0-based). */

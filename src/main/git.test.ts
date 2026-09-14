@@ -25,6 +25,10 @@ test('parseStatus', () => {
   assert.equal(both.upstream, 'origin/dev')
   assert.equal(both.ahead, 2)
   assert.equal(both.behind, 3)
+  // a single dot belongs to the branch name; only ".." (illegal in refs) marks the separator
+  const dotted = parseStatus('## release/1.0...origin/release/1.0 [ahead 1]')
+  assert.equal(dotted.branch, 'release/1.0')
+  assert.equal(dotted.upstream, 'origin/release/1.0')
 })
 
 test('parseLog marks commits that only exist locally', () => {

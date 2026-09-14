@@ -94,6 +94,7 @@ export default function SearchPopup(props: Props): React.JSX.Element {
   }
   const chooseMode = (mode: SearchMode): void => {
     setQuery('')
+    setSelected(0)
     props.onMode(mode)
   }
   return (

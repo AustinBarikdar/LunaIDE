@@ -41,7 +41,16 @@ export type HubStatus = {
 export type AgentName = 'claude' | 'codex'
 export type Preview = { title: string; body: string }[]
 
-export type Summary = { file: string; agent: string; time: string; title: string; body: string }
+/** A plain-language note pinned to one line an agent added or removed; ordered notes are the flow. */
+export type Note = { file: string; anchor: string; why: string; kind?: 'added' | 'removed' }
+export type Summary = {
+  file: string
+  agent: string
+  time: string
+  title: string
+  body: string
+  notes: Note[]
+}
 export type Rollup = { file: string; body: string }
 
 export type GitStatus = {
@@ -156,6 +165,8 @@ export interface LunaApi {
   }
   summaries: {
     list(): Promise<Summary[]>
+    /** Delete every agent post; returns how many. Roll-ups stay. */
+    clear(): Promise<number>
     rollups(): Promise<Rollup[]>
     rollup(): Promise<{ file: string; text: string }>
     onChanged(cb: () => void): () => void

@@ -126,6 +126,10 @@ Register from the Agents tab. For Claude Code that writes `.mcp.json` plus a `Us
 
 `<vault>/Luna/<project>/{summaries,inbox,memory,rollups}` as plain markdown, plus a universal `<vault>/Luna/shared/memory/` that every project and agent can pull from. Point Settings at your Obsidian vault to get graph and search for free; with no path set, Luna uses `<project>/.luna/vault` for project files and the app data folder for the shared memory. Team-prompt leaders are told to call `memory_search` before they start.
 
+## Notes on the code
+
+A summary can carry `notes`: one per meaningful line an agent added or removed, each with an exact snippet of that line and a plain-language reason, listed in the order the change flows. In the Summaries view a post shows its **How it flows** steps right under the title, with an **Explain on code** button in its header; the prose follows, and the raw diff is folded behind a toggle so the list stays short and quick. Click a step (or the button) and the file opens with the diff highlighted, every note drawn as a bubble under the line it explains, and a step bar under the editor tabs that walks the flow with previous and next, opening other files as the steps move into them. A note about a removal hangs off the red line. The idea is that someone who does not know the codebase can read a change top to bottom without opening anything else. **Clear** in the Summaries header deletes the posts (roll-ups stay), after a confirmation.
+
 ## Roll-up
 
 The Summaries tab runs your chosen CLI headless (`claude -p` or `codex exec`) over all summaries since the last roll-up, saves the result under `rollups/`, and drops it in every connected agent's inbox. MCP is disabled for that run so the summarizer never re-enters the hub.

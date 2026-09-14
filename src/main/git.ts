@@ -54,7 +54,9 @@ export function parseStatus(
   porcelain: string
 ): Pick<GitStatus, 'branch' | 'upstream' | 'ahead' | 'behind' | 'changes'> {
   const [head = '', ...rest] = porcelain.split('\n')
-  const m = head.match(/^## (?:No commits yet on )?([^.\s]+)(?:\.\.\.(\S+))?/)
+  // branch names can contain single dots (e.g. "release/1.0"); only ".." (forbidden in refs) can
+  // mark the "branch...upstream" separator, so a lone "." must belong to the branch name itself
+  const m = head.match(/^## (?:No commits yet on )?((?:[^.\s]|\.(?!\.))+)(?:\.\.\.(\S+))?/)
   return {
     branch: m?.[1] ?? '',
     upstream: m?.[2]?.replace(/\s*\[.*/, '') ?? '',
@@ -125,9 +127,11 @@ export async function diffFor(cwd: string, files: string[] = []): Promise<string
   if ((await git(cwd, ['rev-parse', '--is-inside-work-tree'])).code !== 0) return ''
   const scope = files.length ? ['--', ...files] : []
   const tracked = await git(cwd, ['diff', 'HEAD', '--no-color', ...scope])
-  const untracked = await git(cwd, ['ls-files', '--others', '--exclude-standard', ...scope])
+  // -z: NUL-separated, unquoted — a plain "\n" split mangles names git would otherwise quote
+  // (non-ASCII, spaces, quotes), so the follow-up diff below fails on a filename that doesn't exist
+  const untracked = await git(cwd, ['ls-files', '--others', '--exclude-standard', '-z', ...scope])
   const parts = [tracked.out]
-  for (const f of untracked.out.split('\n').filter(Boolean).slice(0, 20)) {
+  for (const f of untracked.out.split('\0').filter(Boolean).slice(0, 20)) {
     // ponytail: git exits 1 when --no-index finds differences; the output is still the diff
     parts.push((await git(cwd, ['diff', '--no-index', '--no-color', '--', '/dev/null', f])).out)
   }

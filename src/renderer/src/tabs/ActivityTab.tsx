@@ -170,7 +170,7 @@ export default function ActivityTab({ project }: TabProps): React.JSX.Element {
       offA()
     }
   }, [project])
-  const feed = [...events].reverse()
+  const feed = events.map((e, i) => ({ e, i })).reverse()
   // "Right now" is about terminals that are open: an agent whose terminal was closed is history,
   // and history lives in the timeline and the chat below.
   const agents = live.filter((n) => n && n !== 'you' && n !== 'luna')
@@ -257,7 +257,7 @@ export default function ActivityTab({ project }: TabProps): React.JSX.Element {
           />
         ) : tab === 'chat' ? (
           <div className="feed">
-            {feed.map((e, i) => (
+            {feed.map(({ e, i }) => (
               <div key={i} className={'msg ' + e.kind}>
                 <Avatar name={e.from} size={24} />
                 <div className="bubble">

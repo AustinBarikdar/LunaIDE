@@ -8,12 +8,14 @@ import ModeChooser, { Mode } from './components/ModeChooser'
 import type { Term } from './components/TermView'
 import { disposeTerm } from './components/termStore'
 import { applyTheme } from './components/theme'
+import { editorStatus } from './components/editorStore'
 import { dragProps, dragSource, dropProps, move, moveById } from './components/dnd'
 import GitTab from './tabs/GitTab'
 import SummariesTab from './tabs/SummariesTab'
 import AgentsTab from './tabs/AgentsTab'
 import ActivityTab from './tabs/ActivityTab'
 import ProblemsTab from './tabs/ProblemsTab'
+import type { Flow } from './tabs/types'
 import {
   reveal as revealInEditor,
   subscribeProblems,
@@ -25,12 +27,7 @@ import VaultModal from './components/VaultModal'
 import SettingsModal, { type SettingsTab } from './components/SettingsModal'
 import StatusBar from './components/StatusBar'
 import SearchPopup from './components/SearchPopup'
-import {
-  modifierLabel,
-  shortcutCommand,
-  type Command,
-  type EditorStatus
-} from './components/commands'
+import { modifierLabel, shortcutCommand, type Command } from './components/commands'
 import FlowerMenu from './components/FlowerMenu'
 import TeamModal from './components/TeamModal'
 import Toasts, { type Toast } from './components/Toasts'
@@ -150,7 +147,6 @@ export default function App(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('vault')
   const [searchMode, setSearchMode] = useState<SearchMode | null>(null)
-  const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null)
   const [pluginAgents, setPluginAgents] = useState<PluginAgent[]>([])
   const [commandError, setCommandError] = useState('')
   const searchReturnFocus = useRef<HTMLElement | null>(null)
@@ -307,21 +303,23 @@ export default function App(): React.JSX.Element {
     await window.luna.openProject(dir)
     if (version !== projectVersion.current) return
     clearDiagnostics()
-    setEditorStatus(null)
+    editorStatus.set(null)
     setProject(dir)
     setFiles([])
     setActive(null)
     setSettings(await window.luna.settings.get())
   }
 
-  const openFile = useCallback(async (path: string, diff?: string) => {
+  const openFile = useCallback(async (path: string, diff?: string, flow?: Flow) => {
     const version = projectVersion.current
     const content = await window.luna.readFile(path).catch(() => null)
     if (content === null || version !== projectVersion.current) return
     setFiles((fs) =>
       fs.some((f) => f.path === path)
-        ? fs.map((f) => (f.path === path ? { ...f, diff: diff ?? f.diff } : f))
-        : [...fs, { path, content, saved: content, diff }]
+        ? fs.map((f) =>
+            f.path === path ? { ...f, diff: diff ?? f.diff, flow: diff ? flow : f.flow } : f
+          )
+        : [...fs, { path, content, saved: content, diff, flow }]
     )
     setActive(path)
   }, [])
@@ -339,11 +337,11 @@ export default function App(): React.JSX.Element {
     setActive(path)
   }
 
-  const openDiff = (rel: string, fileDiff: string): void => {
+  const openDiff = (rel: string, fileDiff: string, flow?: Flow): void => {
     if (!project) return
     if (mode === 'agent') setMode('ide')
     if (terminalOnly) toggleTerminalOnly()
-    openFile(rel.startsWith('/') ? rel : `${project}/${rel}`, fileDiff)
+    openFile(rel.startsWith('/') ? rel : `${project}/${rel}`, fileDiff, flow)
   }
 
   // ponytail: the rail order is a list of view ids in localStorage; unknown ids are ignored and
@@ -440,9 +438,11 @@ export default function App(): React.JSX.Element {
   const saveActive = async (): Promise<void> => {
     const file = files.find((f) => f.path === active)
     if (!file) return
-    await window.luna.writeFile(file.path, file.content)
+    // state content can lag ~200ms behind typing (Editor.tsx debounces it); the mounted view is always current.
+    const content = viewFor(file.path)?.state.doc.toString() ?? file.content
+    await window.luna.writeFile(file.path, content)
     setFiles((current) =>
-      current.map((f) => (f.path === file.path ? { ...f, saved: file.content } : f))
+      current.map((f) => (f.path === file.path ? { ...f, content, saved: content } : f))
     )
   }
   const mod = modifierLabel()
@@ -523,17 +523,16 @@ export default function App(): React.JSX.Element {
       return c[slot] === folded ? c : { ...c, [slot]: folded }
     })
 
-  // fold the slots that were folded when Luna last closed, once the panels exist
-  const foldedOnce = useRef(false)
-  useEffect(() => {
-    if (foldedOnce.current || mode !== 'ide') return
-    foldedOnce.current = true
-    for (const slot of SLOTS) if (collapsed[slot]) panelApi.current.get(slot)?.collapse()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode])
-
   /** Panels remount only when a slot becomes empty or filled, not on an ordinary swap. */
   const emptySignature = SLOTS.map((s) => (layout[s] ? 1 : 0)).join('')
+  const groupKey = `${view ? 1 : 0}-${terminalOnly ? 1 : 0}-${mode}-${problemsOpen ? 1 : 0}-${emptySignature}`
+  // a fresh Panel always mounts expanded, so every remount of the tree above (tied to groupKey)
+  // needs its folded slots collapsed again — not just the very first time panels exist.
+  useEffect(() => {
+    if (mode !== 'ide') return
+    for (const slot of SLOTS) if (collapsed[slot]) panelApi.current.get(slot)?.collapse()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupKey])
   /** The Problems pane only takes its slot while it is switched on. */
   const slotShown = (s: Slot): boolean => layout[s] !== 'problems' || problemsOpen
   const slotProps = (slot: Slot): ReturnType<typeof dropProps> =>
@@ -798,7 +797,7 @@ export default function App(): React.JSX.Element {
               problems={problemCount}
               problemsOpen={problemsOpen}
               onToggleProblems={toggleProblems}
-              onStatus={setEditorStatus}
+              onStatus={editorStatus.set}
               onOpenFile={openDiff}
             />
           ) : (
@@ -1038,11 +1037,7 @@ export default function App(): React.JSX.Element {
           )}
         </nav>
 
-        <Group
-          key={`${view ? 1 : 0}-${terminalOnly ? 1 : 0}-${mode}-${problemsOpen ? 1 : 0}-${emptySignature}`}
-          orientation="horizontal"
-          className="group"
-        >
+        <Group key={groupKey} orientation="horizontal" className="group">
           {view && slotShown('side') && (
             <>
               <Panel
@@ -1181,9 +1176,8 @@ export default function App(): React.JSX.Element {
         project={project}
         errors={severityCounts.errors}
         warnings={severityCounts.warnings}
-        editor={
-          mode === 'ide' && !terminalOnly && active === editorStatus?.path ? editorStatus : null
-        }
+        active={active}
+        showEditor={mode === 'ide' && !terminalOnly}
         hub={hub}
         onGit={() => {
           setView('git')

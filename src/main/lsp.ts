@@ -275,8 +275,63 @@ type LspItem = {
   textEdit?: { newText: string }
 }
 
-/* ---------- eslint as a CLI linter on the live buffer ---------- */
+/* ---------- eslint on the live buffer ---------- */
+type EslintMessage = {
+  line: number
+  column: number
+  endLine?: number
+  endColumn?: number
+  severity: number
+  message: string
+  ruleId?: string
+}
+type EslintApi = {
+  lintText(text: string, opts: { filePath: string }): Promise<{ messages: EslintMessage[] }[]>
+}
 const eslintTimers = new Map<string, ReturnType<typeof setTimeout>>()
+// ponytail: the project's own eslint, loaded once and kept. Spawning the CLI cost 1.2–2.2 s of CPU
+// on every pause while typing (measured); the same lint through the API is ~15 ms once the
+// config is loaded. Falls back to the CLI when the package cannot be loaded in-process.
+let eslintApi: { root: string; api: EslintApi | null } | undefined
+async function loadEslint(): Promise<EslintApi | null> {
+  if (eslintApi && eslintApi.root === root) return eslintApi.api
+  let api: EslintApi | null = null
+  try {
+    const req = createRequire(pathToFileURL(root + '/package.json').href)
+    const mod = req('eslint') as { ESLint: new (o: { cwd: string }) => EslintApi }
+    api = new mod.ESLint({ cwd: root })
+  } catch {
+    api = null
+  }
+  eslintApi = { root, api }
+  return api
+}
+/** The linter config changed on disk: load it again on the next lint. */
+export function eslintConfigChanged(): void {
+  eslintApi = undefined
+}
+const toDiags = (messages: EslintMessage[]): Diagnostic[] =>
+  messages.map((m) => ({
+    from: { line: m.line - 1, ch: m.column - 1 },
+    to: { line: (m.endLine ?? m.line) - 1, ch: (m.endColumn ?? m.column + 1) - 1 },
+    severity: m.severity === 2 ? 'error' : 'warning',
+    message: m.message + (m.ruleId ? `  (${m.ruleId})` : ''),
+    source: 'eslint'
+  }))
+async function eslintCli(path: string, text: string): Promise<EslintMessage[] | null> {
+  const r = await sh(`npx --no-install eslint --format json --stdin --stdin-filename ${q(path)}`, {
+    cwd: dirname(path),
+    input: text
+  })
+  const start = r.out.indexOf('[{')
+  if (start < 0) return null // eslint not installed in this project, or no config: stay quiet
+  try {
+    const [file] = JSON.parse(r.out.slice(start)) as { messages: EslintMessage[] }[]
+    return file?.messages ?? []
+  } catch {
+    return null
+  }
+}
 async function eslint(path: string, text: string): Promise<void> {
   const cfg = forExt(path, 'eslint')
   if (!cfg || !root) return
@@ -284,38 +339,18 @@ async function eslint(path: string, text: string): Promise<void> {
   eslintTimers.set(
     path,
     setTimeout(async () => {
-      const r = await sh(
-        `npx --no-install eslint --format json --stdin --stdin-filename ${q(path)}`,
-        { cwd: dirname(path), input: text }
-      )
-      const start = r.out.indexOf('[{')
-      if (start < 0) return // eslint not installed in this project, or no config: stay quiet
-      try {
-        const [file] = JSON.parse(r.out.slice(start)) as {
-          messages: {
-            line: number
-            column: number
-            endLine?: number
-            endColumn?: number
-            severity: number
-            message: string
-            ruleId?: string
-          }[]
-        }[]
-        onDiag(
-          path,
-          cfg.name,
-          (file?.messages ?? []).map((m) => ({
-            from: { line: m.line - 1, ch: m.column - 1 },
-            to: { line: (m.endLine ?? m.line) - 1, ch: (m.endColumn ?? m.column + 1) - 1 },
-            severity: m.severity === 2 ? 'error' : 'warning',
-            message: m.message + (m.ruleId ? `  (${m.ruleId})` : ''),
-            source: 'eslint'
-          }))
-        )
-      } catch {
-        /* unparsable output: ignore */
+      const api = await loadEslint()
+      let messages: EslintMessage[] | null = null
+      if (api) {
+        try {
+          const [file] = await api.lintText(text, { filePath: path })
+          messages = file?.messages ?? []
+        } catch {
+          messages = null // a config this build cannot load: try the CLI below
+        }
       }
-    }, 700)
+      if (messages === null) messages = await eslintCli(path, text)
+      if (messages) onDiag(path, cfg.name, toDiags(messages))
+    }, 400)
   )
 }

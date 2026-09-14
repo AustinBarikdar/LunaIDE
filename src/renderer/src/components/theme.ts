@@ -65,6 +65,7 @@ export function applyTheme(theme: Theme): () => void {
   const paint = (): void => {
     document.documentElement.dataset.theme = resolve(theme)
     for (const rec of live.values()) rec.term.options.theme = termTheme()
+    window.dispatchEvent(new Event('luna:theme'))
   }
   paint()
   if (theme !== 'system') return () => {}
