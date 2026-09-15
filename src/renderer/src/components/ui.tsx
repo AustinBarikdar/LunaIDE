@@ -102,7 +102,6 @@ export function ViewHead({
   return (
     <div className="view-head">
       <span className="view-title">{title}</span>
-      <span className="spacer" />
       {children}
     </div>
   )

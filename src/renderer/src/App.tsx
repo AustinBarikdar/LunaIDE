@@ -28,7 +28,6 @@ import SettingsModal, { type SettingsTab } from './components/SettingsModal'
 import StatusBar from './components/StatusBar'
 import SearchPopup from './components/SearchPopup'
 import { modifierLabel, shortcutCommand, type Command } from './components/commands'
-import FlowerMenu from './components/FlowerMenu'
 import TeamModal from './components/TeamModal'
 import Toasts, { type Toast } from './components/Toasts'
 import { EmptyState, ViewHead } from './components/ui'
@@ -57,8 +56,6 @@ import {
   LuHistory,
   LuLayoutGrid,
   LuCode,
-  LuSparkles,
-  LuBot as LuBotIcon,
   LuMessagesSquare,
   LuNetwork,
   LuTriangleAlert,
@@ -66,8 +63,7 @@ import {
   LuGripVertical,
   LuChevronLeft,
   LuChevronRight,
-  LuChevronUp,
-  LuCrown
+  LuChevronUp
 } from 'react-icons/lu'
 
 type View = 'files' | 'git' | 'summaries' | 'agents' | 'activity'
@@ -951,29 +947,6 @@ export default function App(): React.JSX.Element {
         </button>
       </header>
 
-      <FlowerMenu
-        items={[
-          ...VIEWS.map((v) => ({
-            icon: v.icon,
-            label: v.label,
-            active: view === v.id,
-            onClick: () => pickView(v.id)
-          })),
-          {
-            icon: mode === 'agent' ? <LuCode /> : <LuLayoutGrid />,
-            label: mode === 'agent' ? 'Switch to IDE view' : 'Switch to Agent view',
-            onClick: () => setMode(mode === 'agent' ? 'ide' : 'agent')
-          },
-          { icon: <LuCrown />, label: 'Team prompt', onClick: () => setTeamOpen(true) },
-          { icon: <LuSparkles />, label: 'Launch Claude Code', onClick: () => launch('claude') },
-          { icon: <LuBotIcon />, label: 'Launch Codex', onClick: () => launch('codex') },
-          { icon: <LuNetwork />, label: 'Vault graph', onClick: () => setVaultOpen(true) },
-          ...(mode === 'ide'
-            ? [{ icon: <LuGripVertical />, label: 'Reset pane layout', onClick: resetLayout }]
-            : []),
-          { icon: <LuSettings />, label: 'Settings', onClick: () => setSettingsOpen(true) }
-        ]}
-      />
       <div className="body">
         <nav className="activity" ref={navRef}>
           {orderedViews.map((v) => (

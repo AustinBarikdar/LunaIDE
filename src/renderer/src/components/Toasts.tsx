@@ -7,7 +7,7 @@ export type Toast = {
   actions?: { label: string; primary?: boolean; onClick: () => void }[]
 }
 
-/** Bottom-right notifications, above the flower button. */
+/** Bottom-right notifications. */
 export default function Toasts({
   toasts,
   onDismiss
