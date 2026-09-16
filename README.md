@@ -41,7 +41,7 @@ Terminals belong to Luna, not to a view: switching views or workspaces keeps eve
 
 **Fold any of them away.** Hovering a pane shows two small controls on its left edge: the grip to drag it, and an arrow to fold it. A folded pane slides shut into a labelled strip with an arrow to bring it back, so you can hide the file tree while you work and get it back with one click. Dragging a divider all the way shut folds the pane the same way, and what you folded is still folded next time you open Luna. Every pane has a grip on its left edge that appears when you hover it. Drag one pane onto another slot and the two swap, so the terminals can sit on the left, the editor at the bottom, or the file tree beside the problems list. While you drag, the pane you picked up fades and the pane under the cursor turns into a translucent slot that names what is about to land there; the contents fade in when you let go. The arrangement is remembered; **Reset pane layout** in the quick menu (or the command palette) puts it back.
 
-**Pop a view out.** The last button on the left edge tears the current view off into its own window: Files, Source control, Summaries, Agents, Activity, or Problems. It stays live, since both windows talk to the same Luna. Clicking a file there opens it in the main window's editor. Terminals stay in the main window.
+**Pop a view out.** The last button on the left edge tears the current view off into its own window: Files, Source control, Summaries, Team, or Problems. It stays live, since both windows talk to the same Luna. Clicking a file there opens it in the main window's editor. Terminals stay in the main window.
 
 ## Status bar and quick search
 
@@ -84,9 +84,9 @@ Luna serves `http://127.0.0.1:4141/mcp/<agent>` while a project is open. The pat
 
 ## Team prompt
 
-**Team prompt** (Agents view header or the command palette) opens a full-size composer. Every open agent terminal is a team member with its own hub identity: the first Claude terminal is `claude`, the second `claude-2`, and so on (Luna passes it as `LUNA_AGENT`; Claude sends it as an `X-Luna-Agent` header via `.mcp.json`, Codex via `env_http_headers`). Pick which terminal **plans** and tick which ones **code**, write the job, send. The planner is told to search shared memory, split the job, and delegate through `delegate`; if it is not also a coder it never writes code itself. Each task lands in that terminal's inbox and Luna types a nudge into it so it starts right away. Coders report back with `send_message` to the planner.
+**Team prompt** sits at the top of the **Team** view, and the crown button in the title bar (or ⌘T, or the command palette) jumps straight to it. Every open agent terminal is a team member with its own hub identity: the first Claude terminal is `claude`, the second `claude-2`, and so on (Luna passes it as `LUNA_AGENT`; Claude sends it as an `X-Luna-Agent` header via `.mcp.json`, Codex via `env_http_headers`). Pick which terminal **plans** and tick which ones **code**, write the job, send. The planner is told to search shared memory, split the job, and delegate through `delegate`; if it is not also a coder it never writes code itself. Each task lands in that terminal's inbox and Luna types a nudge into it so it starts right away. Coders report back with `send_message` to the planner.
 
-**Registration** lives in Settings → Agents (Register / Re-register with a preview of the exact changes). When you launch an agent that isn't registered yet, a notification in the bottom-right corner offers to do it in one click. Each terminal's identity travels in both the URL and a header, so a CLI that drops custom headers still identifies itself. Registration is read when the CLI starts, so restart terminals that were already running: until then they all report under the base name and share one inbox, which is what makes a planner appear to hand tasks to itself and read an empty inbox. The Agents view flags a terminal whose identity never reaches the hub.
+**Registration** lives in Settings → Agents (Register / Re-register with a preview of the exact changes). When you launch an agent that isn't registered yet, a notification in the bottom-right corner offers to do it in one click. Each terminal's identity travels in both the URL and a header, so a CLI that drops custom headers still identifies itself. Registration is read when the CLI starts, so restart terminals that were already running: until then they all report under the base name and share one inbox, which is what makes a planner appear to hand tasks to itself and read an empty inbox. The Team view flags a terminal whose identity never reaches the hub.
 
 ## Linting, language servers, and plugins
 
@@ -114,13 +114,13 @@ Settings → Extensions → **Plugins** has three pages:
 
 Plugin names and agent IDs use lowercase letters and numbers separated by dots, hyphens, or underscores. Language-server arguments are entered one per line; file extensions are comma-separated. Plugin commands must already be installed and available on your terminal's PATH; enabled language servers start automatically. To share a plugin, export its folder or push it to a Git repository and share the URL. Full VS Code extensions cannot run in Luna; their language servers can.
 
-## Activity and vault graph
+## Team view and vault graph
 
-Every hub interaction (summaries, messages, delegated tasks, roll-ups, nudges, your dispatches) is appended to `<vault>/Luna/<project>/log.jsonl`. The **Activity** view shows the agents as a live network with animated arcs for recent messages, above a chat-style feed of who said what to whom. **Clear** empties the log for the project. In the Chat tab a composer at the top queues a note of your own: pick an agent (the current team leader comes first) and Luna drops it in that agent's inbox and nudges its terminal to read it, so you can change course mid-job without interrupting the run.
+Every hub interaction (summaries, messages, delegated tasks, roll-ups, nudges, your dispatches) is appended to `<vault>/Luna/<project>/log.jsonl`. Below the team prompt, the **Team** view lists the agents (launch, registration, hub status), what each open terminal is working on right now, and the activity: the agents as a live network with animated arcs for recent messages, above a timeline or a chat-style feed of who said what to whom. **Clear** empties the log for the project. In the Chat tab a composer at the top queues a note of your own: pick an agent (the current team leader comes first) and Luna drops it in that agent's inbox and nudges its terminal to read it, so you can change course mid-job without interrupting the run.
 
 The **Vault graph** button (activity bar) opens an Obsidian-style force graph of the vault: agents, summaries, roll-ups, memory notes, and inboxes, linked by authorship, `[[wikilinks]]`, and which summaries each roll-up covered. Drag to arrange, double-click a node to open the file in the editor.
 
-Register from the Agents tab. For Claude Code that writes `.mcp.json` plus a `UserPromptSubmit` hook in `.claude/settings.local.json` that tells Claude when its inbox has mail. For Codex it runs `codex mcp add luna --url …`.
+Register from Settings → Agents. For Claude Code that writes `.mcp.json` plus a `UserPromptSubmit` hook in `.claude/settings.local.json` that tells Claude when its inbox has mail. For Codex it runs `codex mcp add luna --url …`.
 
 ## Vault
 

@@ -3,8 +3,7 @@ import type { Settings } from '../../preload/index.d'
 import FileTree from './components/FileTree'
 import GitTab from './tabs/GitTab'
 import SummariesTab from './tabs/SummariesTab'
-import AgentsTab from './tabs/AgentsTab'
-import ActivityTab from './tabs/ActivityTab'
+import TeamTab from './tabs/TeamTab'
 import ProblemsTab from './tabs/ProblemsTab'
 import { applyTheme } from './components/theme'
 import { updateDiagnostics, viewFor } from './components/lspExtensions'
@@ -32,8 +31,7 @@ const PANES: Record<string, (p: TabProps) => React.JSX.Element> = {
   files: FilesPane,
   git: GitTab,
   summaries: SummariesTab,
-  agents: AgentsTab,
-  activity: ActivityTab,
+  team: TeamTab,
   problems: ProblemsTab
 }
 
@@ -68,8 +66,7 @@ export default function Popout({ view }: { view: string }): React.JSX.Element {
     saveSetting: async (patch) => setSettings(await window.luna.settings.save(patch)),
     openDiff: (rel, diff) => window.luna.popout.reveal(rel, diff),
     reveal: (path) => window.luna.popout.reveal(path),
-    launch: () => window.luna.popout.reveal(''),
-    openTeam: () => {}
+    launch: () => window.luna.popout.reveal('')
   }
   return (
     <div className="pane sidebar popout-pane">

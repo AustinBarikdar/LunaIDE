@@ -83,7 +83,6 @@
 :root[data-theme='dark'] .tabs,
 :root[data-theme='dark'] .tile-head,
 :root[data-theme='dark'] .modal-nav,
-:root[data-theme='dark'] .team-side,
 :root[data-theme='dark'] .cm-editor .cm-gutters {
   background: rgba(255, 255, 255, 0.04);
 }
@@ -2475,6 +2474,17 @@ button.disclosure:hover {
   opacity: 0.7;
   margin-left: 12px;
 }
+/* a narrow window keeps the crown and drops its label, then the project path */
+@media (max-width: 1200px) {
+  .team-cta .cta-label {
+    display: none;
+  }
+}
+@media (max-width: 1050px) {
+  .project-chip .dim {
+    display: none;
+  }
+}
 @media (max-width: 900px) {
   .status-language {
     display: none;
@@ -2708,31 +2718,15 @@ button.disclosure:hover {
   margin-bottom: 2px;
 }
 
-/* team prompt modal */
-.team-modal {
-  flex-direction: column;
-  width: min(1000px, 92vw);
-  height: min(640px, 86vh);
-}
-.team-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-.team-main {
-  flex: 1;
-  min-width: 0;
+/* team prompt, at the top of the Team view */
+.team-prompt {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 18px 20px;
-}
-.team-side {
-  width: 320px;
-  padding: 18px 20px;
-  border-left: 1px solid var(--edge);
-  background: rgba(255, 255, 255, 0.35);
-  overflow: auto;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(108, 92, 231, 0.45);
+  background: var(--accent-soft);
 }
 .team-label {
   display: flex;
@@ -2745,12 +2739,24 @@ button.disclosure:hover {
   color: var(--muted);
 }
 .team-text {
-  flex: 1;
-  min-height: 0;
-  resize: none;
-  font-size: 14px;
-  line-height: 1.55;
-  padding: 14px 16px;
+  min-height: 96px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 12px;
+}
+.role-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.role-pick input {
+  accent-color: var(--accent);
+  margin: 0;
 }
 .team-list {
   display: flex;

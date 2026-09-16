@@ -12,8 +12,7 @@ import { editorStatus } from './components/editorStore'
 import { dragProps, dragSource, dropProps, move, moveById } from './components/dnd'
 import GitTab from './tabs/GitTab'
 import SummariesTab from './tabs/SummariesTab'
-import AgentsTab from './tabs/AgentsTab'
-import ActivityTab from './tabs/ActivityTab'
+import TeamTab from './tabs/TeamTab'
 import ProblemsTab from './tabs/ProblemsTab'
 import type { Flow } from './tabs/types'
 import {
@@ -28,7 +27,6 @@ import SettingsModal, { type SettingsTab } from './components/SettingsModal'
 import StatusBar from './components/StatusBar'
 import SearchPopup from './components/SearchPopup'
 import { modifierLabel, shortcutCommand, type Command } from './components/commands'
-import TeamModal from './components/TeamModal'
 import Toasts, { type Toast } from './components/Toasts'
 import { EmptyState, ViewHead } from './components/ui'
 import { Blobs, SlidingIndicator } from './components/fx'
@@ -47,7 +45,6 @@ import {
   LuFiles,
   LuGitBranch,
   LuScrollText,
-  LuBot,
   LuSettings,
   LuPanelBottomClose,
   LuPanelBottomOpen,
@@ -56,23 +53,22 @@ import {
   LuHistory,
   LuLayoutGrid,
   LuCode,
-  LuMessagesSquare,
   LuNetwork,
   LuTriangleAlert,
   LuExternalLink,
   LuGripVertical,
   LuChevronLeft,
   LuChevronRight,
-  LuChevronUp
+  LuChevronUp,
+  LuCrown
 } from 'react-icons/lu'
 
-type View = 'files' | 'git' | 'summaries' | 'agents' | 'activity'
+type View = 'files' | 'git' | 'summaries' | 'team'
 const VIEWS: { id: View; label: string; icon: React.JSX.Element }[] = [
   { id: 'files', label: 'Files', icon: <LuFiles /> },
   { id: 'git', label: 'Source control', icon: <LuGitBranch /> },
   { id: 'summaries', label: 'Summaries', icon: <LuScrollText /> },
-  { id: 'agents', label: 'Agents & team', icon: <LuBot /> },
-  { id: 'activity', label: 'Activity', icon: <LuMessagesSquare /> }
+  { id: 'team', label: 'Team', icon: <LuCrown /> }
 ]
 
 type Slot = 'side' | 'main' | 'right' | 'bottom' | 'corner'
@@ -136,7 +132,11 @@ export default function App(): React.JSX.Element {
   const [files, setFiles] = useState<OpenFile[]>([])
   const [active, setActive] = useState<string | null>(null)
   const [treeVersion, setTreeVersion] = useState(0)
-  const [view, setView] = useState<View | null>(() => (stored('view') as View | null) ?? 'files')
+  const [view, setView] = useState<View | null>(() => {
+    const saved = stored('view')
+    // the Agents and Activity views became one Team view
+    return saved === 'agents' || saved === 'activity' ? 'team' : ((saved as View | null) ?? 'files')
+  })
   const [terminalOnly, setTerminalOnly] = useState(() => stored('terminalOnly') === '1')
   const [mode, setModeState] = useState<Mode>(() => (stored('mode') === 'agent' ? 'agent' : 'ide'))
   const [chooser, setChooser] = useState(() => stored('modeRemember') !== '1')
@@ -149,7 +149,6 @@ export default function App(): React.JSX.Element {
   const projectVersion = useRef(0)
   const [severityCounts, setSeverityCounts] = useState({ errors: 0, warnings: 0 })
   const [vaultOpen, setVaultOpen] = useState(false)
-  const [teamOpen, setTeamOpen] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const dismiss = (id: string): void => setToasts((t) => t.filter((x) => x.id !== id))
   const toast = (t: Omit<Toast, 'id'>, ttl = 0): string => {
@@ -512,6 +511,15 @@ export default function App(): React.JSX.Element {
     if (fold) api.collapse()
     else api.expand()
   }
+  // The team prompt is the point of the app, so it is a view, not a dialog: unfold the sidebar
+  // if it is tucked away, show the Team view, and put the cursor in the job box.
+  const openTeam = (): void => {
+    const slot = SLOTS.find((s) => layout[s] === 'sidebar')
+    if (slot && collapsed[slot]) toggleCollapse(slot)
+    setView('team')
+    store('view', 'team')
+    setTimeout(() => document.querySelector<HTMLTextAreaElement>('.team-text')?.focus(), 50)
+  }
   // ponytail: a pixel threshold rather than isCollapsed(), so dragging a divider shut folds too
   const noteCollapsed = (slot: Slot, size: { inPixels: number }): void =>
     setCollapsed((c) => {
@@ -645,8 +653,9 @@ export default function App(): React.JSX.Element {
       id: 'team.open',
       label: 'Team Prompt',
       keywords: 'planner coders delegate leader',
+      shortcut: `${mod}T`,
       enabled: !!project,
-      run: () => setTeamOpen(true)
+      run: openTeam
     }
   ]
   const execute = (command: Command): void => {
@@ -681,7 +690,7 @@ export default function App(): React.JSX.Element {
   )
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (settingsOpen || vaultOpen || teamOpen || chooser || event.defaultPrevented) return
+      if (settingsOpen || vaultOpen || chooser || event.defaultPrevented) return
       // Other dialogs/editing popovers retain their shortcuts as well.
       if (!searchMode && document.activeElement?.closest('[role="dialog"], .modal-backdrop')) return
       const id = shortcutCommand(event)
@@ -696,7 +705,6 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey, true)
   })
 
-  const openTeam = (): void => setTeamOpen(true)
   // ponytail: five fixed slots, and the user says which pane lives in each. Dragging a pane's grip
   // onto a slot moves it there and the slot's old pane takes its place — enough to rearrange the
   // IDE without a docking engine. A slot with nothing in it is a drop target you can fill.
@@ -780,8 +788,7 @@ export default function App(): React.JSX.Element {
             )}
             {settings && view === 'git' && <GitTab {...tabProps} />}
             {settings && view === 'summaries' && <SummariesTab {...tabProps} />}
-            {settings && view === 'agents' && <AgentsTab {...tabProps} />}
-            {settings && view === 'activity' && <ActivityTab {...tabProps} />}
+            {settings && view === 'team' && <TeamTab {...tabProps} terms={terms} />}
           </>
         ) : c === 'editor' ? (
           project ? (
@@ -824,7 +831,6 @@ export default function App(): React.JSX.Element {
     openDiff,
     launch,
     reveal,
-    openTeam,
     openCommit,
     openTerminal: (name: string, cmd: string) => addTerm(name, cmd)
   }
@@ -870,14 +876,6 @@ export default function App(): React.JSX.Element {
       )}
       {chooser && <ModeChooser onPick={pickMode} />}
       <Toasts toasts={toasts} onDismiss={dismiss} />
-      {teamOpen && (
-        <TeamModal
-          terms={terms}
-          project={project}
-          onClose={() => setTeamOpen(false)}
-          onLaunch={launch}
-        />
-      )}
       {vaultOpen && (
         <VaultModal
           onClose={() => setVaultOpen(false)}
@@ -924,6 +922,14 @@ export default function App(): React.JSX.Element {
             <LuCode /> IDE
           </button>
         </span>
+        <button
+          className="primary team-cta"
+          disabled={!project}
+          title={`Give the team one job (${mod}T)`}
+          onClick={openTeam}
+        >
+          <LuCrown /> <span className="cta-label">Team prompt</span>
+        </button>
         <span className={'pill ' + (hub?.running ? 'ok' : 'warn')} title="MCP hub">
           <i />
           {hub?.running ? `hub :${hub.port}` : 'hub off'}

@@ -22,7 +22,13 @@ export function shortcutCommand(
   if (key === 'p') return event.shiftKey ? 'search.commands' : 'search.files'
   if (key === 'f' && event.shiftKey) return 'search.text'
   if (event.shiftKey) return
-  return { s: 'file.save', b: 'view.sidebar', j: 'view.terminal', ',': 'settings.open' }[key]
+  return {
+    s: 'file.save',
+    b: 'view.sidebar',
+    j: 'view.terminal',
+    t: 'team.open',
+    ',': 'settings.open'
+  }[key]
 }
 
 export const modifierLabel = (): string =>
