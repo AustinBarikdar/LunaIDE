@@ -2,32 +2,10 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { live } from './termStore'
+import { termTheme } from './theme'
 
 /** agent = hub identity for agent terminals (claude, claude-2, codex…); cmd = what to run */
 export type Term = { id: string; name: string; cmd?: string; agent?: string; ws: string }
-
-const theme = {
-  background: 'rgba(0,0,0,0)',
-  foreground: '#1f1f24',
-  cursor: '#6c5ce7',
-  selectionBackground: 'rgba(108,92,231,0.25)',
-  black: '#1f1f24',
-  red: '#c62828',
-  green: '#2e7d32',
-  yellow: '#9a6700',
-  blue: '#1a56db',
-  magenta: '#8e24aa',
-  cyan: '#00838f',
-  white: '#8a8a94',
-  brightBlack: '#6f6f7a',
-  brightRed: '#d64545',
-  brightGreen: '#3a9a4a',
-  brightYellow: '#b58100',
-  brightBlue: '#3b6fe0',
-  brightMagenta: '#a64bc2',
-  brightCyan: '#0aa0b0',
-  brightWhite: '#1f1f24'
-}
 
 export default function TermView({
   id,
@@ -48,7 +26,7 @@ export default function TermView({
     let rec = live.get(id)
     if (!rec) {
       const term = new Terminal({
-        theme,
+        theme: termTheme(),
         allowTransparency: true,
         fontFamily: 'SF Mono, Menlo, monospace',
         fontSize: 13,
@@ -60,6 +38,9 @@ export default function TermView({
       term.loadAddon(fit)
       const host = document.createElement('div')
       host.className = 'term-inner'
+      // xterm measures the character cell when it opens, so the host has to be in the document
+      // already — opening detached leaves the terminal stuck at 80x24 and painting nothing.
+      el.appendChild(host)
       term.open(host)
       const offData = window.luna.pty.onData((tid, d) => tid === id && term.write(d))
       const offExit = window.luna.pty.onExit(
@@ -90,7 +71,7 @@ export default function TermView({
         }
       })
     }
-    const { host, fit } = rec
+    const { host, fit, term: xterm } = rec
     el.appendChild(host)
     // ponytail: one fit per settled layout, so dragging a divider resizes the pty once.
     let timer: number | undefined
@@ -107,7 +88,12 @@ export default function TermView({
       timer = window.setTimeout(doFit, 150)
     })
     ro.observe(el)
-    setTimeout(doFit, 0)
+    // ponytail: moving the host to another pane leaves the DOM renderer showing nothing until it
+    // is told to repaint, so re-attaching always ends with a fit and a full refresh.
+    setTimeout(() => {
+      doFit()
+      xterm.refresh(0, xterm.rows - 1)
+    }, 0)
     return () => {
       clearTimeout(timer)
       ro.disconnect()

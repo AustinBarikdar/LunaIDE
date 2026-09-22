@@ -11,7 +11,20 @@ import { basename, join } from 'path'
 import { app } from 'electron'
 import { getSettings } from './settings'
 
-export type Summary = { file: string; agent: string; time: string; title: string; body: string }
+/**
+ * One plain-language note pinned to a line of code an agent added (or removed). `anchor` is an
+ * exact snippet of that line; Luna finds it in the file and draws the note as a bubble there.
+ * The order of a summary's notes is the flow of the change, so they are numbered as steps.
+ */
+export type Note = { file: string; anchor: string; why: string; kind?: 'added' | 'removed' }
+export type Summary = {
+  file: string
+  agent: string
+  time: string
+  title: string
+  body: string
+  notes: Note[]
+}
 
 export const safe = (s: string): string => s.replace(/[^a-z0-9_-]/gi, '_').slice(0, 60) || 'unknown'
 const stamp = (): string => new Date().toISOString().replace(/[:.]/g, '-')
@@ -30,15 +43,49 @@ export function postSummary(
   agent: string,
   title: string,
   text: string,
-  diff = ''
+  diff = '',
+  notes: Note[] = []
 ): string {
   const file = join(vaultRoot(project), 'summaries', `${stamp()}-${safe(agent)}.md`)
   const diffBlock = diff.trim() ? `\n\n\`\`\`diff\n${diff.trim()}\n\`\`\`\n` : ''
+  // notes ride along as JSON in their own fence: Obsidian shows it as code, Luna reads it back
+  const notesBlock = notes.length
+    ? `\n\`\`\`luna-notes\n${JSON.stringify(notes, null, 2)}\n\`\`\`\n`
+    : ''
   writeFileSync(
     file,
-    `---\nagent: ${agent}\ntime: ${new Date().toISOString()}\ntitle: ${title.replace(/\n/g, ' ')}\n---\n\n${text}${diffBlock}\n`
+    `---\nagent: ${agent}\ntime: ${new Date().toISOString()}\ntitle: ${title.replace(/\n/g, ' ')}\n---\n\n${text}${diffBlock}${notesBlock}\n`
   )
   return file
+}
+
+/** Delete every agent post (roll-ups stay). */
+export function clearSummaries(project: string): number {
+  const dir = join(vaultRoot(project), 'summaries')
+  const files = readdirSync(dir).filter((f) => f.endsWith('.md'))
+  for (const f of files) unlinkSync(join(dir, f))
+  return files.length
+}
+
+/** Pull the ```luna-notes fence out of a summary body. */
+export function splitNotes(body: string): { body: string; notes: Note[] } {
+  const m = body.match(/\n?```luna-notes\n([\s\S]*?)\n```\n?/)
+  if (!m) return { body, notes: [] }
+  let notes: Note[] = []
+  try {
+    const parsed = JSON.parse(m[1])
+    if (Array.isArray(parsed))
+      notes = parsed.filter(
+        (n) =>
+          n &&
+          typeof n.file === 'string' &&
+          typeof n.anchor === 'string' &&
+          typeof n.why === 'string'
+      )
+  } catch {
+    /* a hand-edited fence that is not JSON: no notes, the rest still shows */
+  }
+  return { body: body.replace(m[0], '\n').trim(), notes }
 }
 
 /** Body without the captured diff fence — for the roll-up prompt and read_summaries. */
@@ -53,12 +100,14 @@ export function parseSummary(file: string): Summary {
     const i = line.indexOf(':')
     if (i > 0) meta[line.slice(0, i)] = line.slice(i + 1).trim()
   }
+  const { body, notes } = splitNotes((m?.[2] ?? raw).trim())
   return {
     file,
     agent: meta.agent ?? '?',
     time: meta.time ?? '',
     title: meta.title ?? '',
-    body: (m?.[2] ?? raw).trim()
+    body,
+    notes
   }
 }
 

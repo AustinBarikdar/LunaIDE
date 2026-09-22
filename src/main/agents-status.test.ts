@@ -9,9 +9,21 @@ test('claude: missing → not registered; old → outdated; header → registere
     registered: false,
     outdated: true
   })
+  // a header alone is not enough any more: the url has to carry the identity too
   assert.deepEqual(
     claudeStatus({
       mcpServers: { luna: { url: 'x', headers: { 'X-Luna-Agent': '${LUNA_AGENT:-claude}' } } }
+    }),
+    { registered: false, outdated: true }
+  )
+  assert.deepEqual(
+    claudeStatus({
+      mcpServers: {
+        luna: {
+          url: 'http://127.0.0.1:4141/mcp/${LUNA_AGENT:-claude}',
+          headers: { 'X-Luna-Agent': '${LUNA_AGENT:-claude}' }
+        }
+      }
     }),
     { registered: true }
   )

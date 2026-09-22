@@ -132,6 +132,9 @@ export function lspExtensions(path: string): Extension {
         const text = u.state.doc.toString()
         t = setTimeout(() => window.luna.lsp.change(path, text), 250)
       }
+      destroy(): void {
+        clearTimeout(t)
+      }
     }
   )
   const source = async (ctx: CompletionContext): Promise<CompletionResult | null> => {

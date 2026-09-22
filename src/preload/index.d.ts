@@ -1,6 +1,8 @@
 export type Entry = { name: string; path: string; dir: boolean }
 export type Settings = {
   vaultPath: string
+  /** 'system' follows the OS appearance. */
+  theme: 'light' | 'dark' | 'system'
   hubPort: number
   summarizer: 'claude' | 'codex'
   summarizerModel: string
@@ -33,11 +35,22 @@ export type HubStatus = {
   port: number
   project: string
   agents: Record<string, number>
+  /** Why the hub is not listening, e.g. the port is taken by another Luna. */
+  error?: string
 }
 export type AgentName = 'claude' | 'codex'
 export type Preview = { title: string; body: string }[]
 
-export type Summary = { file: string; agent: string; time: string; title: string; body: string }
+/** A plain-language note pinned to one line an agent added or removed; ordered notes are the flow. */
+export type Note = { file: string; anchor: string; why: string; kind?: 'added' | 'removed' }
+export type Summary = {
+  file: string
+  agent: string
+  time: string
+  title: string
+  body: string
+  notes: Note[]
+}
 export type Rollup = { file: string; body: string }
 
 export type GitStatus = {
@@ -45,8 +58,35 @@ export type GitStatus = {
   branch: string
   upstream: string
   remote: string
+  ahead: number
+  behind: number
   changes: { code: string; path: string }[]
 }
+export type Commit = {
+  hash: string
+  short: string
+  author: string
+  when: string
+  subject: string
+  parents: string[]
+  refs: string[]
+  /** Not on the upstream branch yet: it lives only in this clone. */
+  local: boolean
+}
+export type GitLog = { commits: Commit[]; upstream: string }
+export type CommitDetail = {
+  hash: string
+  short: string
+  author: string
+  email: string
+  when: string
+  subject: string
+  body: string
+  /** Branches (local and remote) that contain this commit. */
+  branches: string[]
+  diff: string
+}
+export type GhStatus = { installed: boolean; loggedIn: boolean; account: string }
 export type GitResult = { code: number; out: string }
 
 export type ActivityEvent = {
@@ -116,9 +156,17 @@ export interface LunaApi {
     commit(message: string): Promise<GitResult>
     push(): Promise<GitResult>
     pull(): Promise<GitResult>
+    /** Create this branch on origin and track it. */
+    publish(): Promise<GitResult>
+    log(): Promise<GitLog>
+    show(hash: string): Promise<CommitDetail>
+    gh(): Promise<GhStatus>
+    ghCreate(name: string, visibility: 'private' | 'public'): Promise<GitResult>
   }
   summaries: {
     list(): Promise<Summary[]>
+    /** Delete every agent post; returns how many. Roll-ups stay. */
+    clear(): Promise<number>
     rollups(): Promise<Rollup[]>
     rollup(): Promise<{ file: string; text: string }>
     onChanged(cb: () => void): () => void
@@ -135,6 +183,15 @@ export interface LunaApi {
     register(agent: AgentName): Promise<string>
   }
   openFolder(): Promise<string | null>
+  /** The folder the app has open, for windows that were torn off. */
+  currentProject(): Promise<string>
+  popout: {
+    /** Tear a view off into its own window. */
+    open(view: string): Promise<void>
+    /** Ask the main window to show a file (optionally with a diff). */
+    reveal(rel: string, diff?: string): Promise<void>
+    onReveal(cb: (rel: string, diff?: string) => void): () => void
+  }
   openProject(dir: string): Promise<string>
   pickDir(): Promise<string | null>
   readDir(path: string): Promise<Entry[]>
@@ -153,6 +210,8 @@ export interface LunaApi {
     kill(id: string): void
     onData(cb: (id: string, data: string) => void): () => void
     onExit(cb: (id: string, code: number) => void): () => void
+    /** Main renamed a terminal's hub identity because the one it asked for was taken. */
+    onAgent(cb: (id: string, agent: string) => void): () => void
   }
 }
 

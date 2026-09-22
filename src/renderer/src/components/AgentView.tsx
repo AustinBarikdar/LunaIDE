@@ -5,6 +5,7 @@ import { Launchers } from './TerminalPanel'
 import { EmptyState } from './ui'
 import { SlidingIndicator } from './fx'
 import Tiles from './Tiles'
+import { sortableProps } from './sortable'
 import type { TileMode } from './tileLayout'
 
 type Props = {
@@ -18,6 +19,10 @@ type Props = {
   onCloseWorkspace: (ws: string) => void
   onAdd: (name?: string, cmd?: string, agent?: string) => void
   onClose: (id: string) => void
+  /** Drag a terminal onto another to swap their places. */
+  onMoveTerm: (from: string, to: string) => void
+  onRenameTerm: (id: string, name: string) => void
+  onMoveWorkspace: (from: string, to: string) => void
 }
 
 const MODES: { id: TileMode; icon: React.JSX.Element; label: string }[] = [
@@ -46,10 +51,13 @@ export default function AgentView(p: Props): React.JSX.Element {
     <div className="agent-view">
       <div className="tabs ws-bar">
         <SlidingIndicator activeSelector=".tab.active" deps={[p.active, p.workspaces, editing]} />
-        {p.workspaces.map((ws) => (
+        {p.workspaces.map((ws, i) => (
           <div
             key={ws}
             className={'tab' + (ws === p.active ? ' active' : '')}
+            {...sortableProps(i, (from, to) =>
+              p.onMoveWorkspace(p.workspaces[from], p.workspaces[to])
+            )}
             onClick={() => p.onPick(ws)}
             onDoubleClick={() => {
               setEditing(ws)
@@ -95,7 +103,7 @@ export default function AgentView(p: Props): React.JSX.Element {
         </button>
         <span className="spacer" />
         <span className="dim small" style={{ marginRight: 4 }}>
-          <LuPencil /> double-click a tab to rename
+          <LuPencil /> double-click a tab or a terminal to rename
         </span>
         <span className="seg-tabs" style={{ marginRight: 6 }}>
           {MODES.map((m) => (
@@ -136,6 +144,8 @@ export default function AgentView(p: Props): React.JSX.Element {
                 visible={visible}
                 mode={mode}
                 onClose={p.onClose}
+                onMove={p.onMoveTerm}
+                onRename={p.onRenameTerm}
               />
             )}
           </div>

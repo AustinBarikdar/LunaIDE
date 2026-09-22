@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
 import * as vault from './vault'
+import { matchIdentity, identityFrom } from './identity'
 import { diffFor } from './git'
 
 export type HubStatus = {
@@ -12,17 +13,23 @@ export type HubStatus = {
   port: number
   project: string
   agents: Record<string, number>
+  /** Why the hub is not listening, e.g. the port is taken by another Luna. */
+  error?: string
 }
 
 let server: Server | undefined
+let error = ''
 let port = 0
 let project = ''
 const agents: Record<string, number> = {}
 let onChange: (s: HubStatus) => void = () => {}
-let onInbox: (agent: string) => void = () => {}
+let onInbox: (agent: string, from?: string) => void = () => {}
 let liveAgents: () => string[] = () => []
 /** Called whenever something lands in an agent's inbox (so Luna can nudge its terminal). */
-export function setInboxHooks(cb: (agent: string) => void, live: () => string[]): void {
+export function setInboxHooks(
+  cb: (agent: string, from?: string) => void,
+  live: () => string[]
+): void {
   onInbox = cb
   liveAgents = live
 }
@@ -33,7 +40,8 @@ export const hubStatus = (): HubStatus => ({
   port,
   project,
   agents,
-  live: liveAgents()
+  live: liveAgents(),
+  ...(error ? { error } : {})
 })
 export function setProject(p: string): void {
   project = p
@@ -43,6 +51,20 @@ export function setProject(p: string): void {
 const text = (t: string): { content: { type: 'text'; text: string }[] } => ({
   content: [{ type: 'text', text: t }]
 })
+
+/**
+ * Who the caller means. An unknown name is refused rather than written to an inbox nobody reads,
+ * unless Luna knows of no agents at all yet (then the name is taken at face value).
+ */
+function resolveTo(name: string): { agent: string } | { error: string } {
+  const known = knownAgents()
+  const hit = matchIdentity(name, known)
+  if (hit) return { agent: hit }
+  if (known.length === 0) return { agent: vault.safe(name) }
+  return {
+    error: `No agent called "${name}". Luna knows: ${known.join(', ')}. Call list_agents to check.`
+  }
+}
 
 function makeServer(agent: string): McpServer {
   const s = new McpServer({ name: 'luna', version: '0.1.0' })
@@ -54,7 +76,7 @@ function makeServer(agent: string): McpServer {
     'post_summary',
     {
       description:
-        'Post a short summary of what you just did or learned. Luna saves it to the shared vault, captures the git diff of the files you list, and shows both (diff highlighted) in the Summaries tab. Call this after each meaningful change.',
+        'Post a short summary of what you just did or learned. Luna saves it to the shared vault, captures the git diff of the files you list, and shows both (diff highlighted) in the Summaries tab. Add `notes` so a developer who does not know the code can follow it: each note pins a plain-language explanation to a line you added or removed, and their order is the flow of the change. Call this after each meaningful change.',
       inputSchema: {
         title: z.string().describe('One-line title'),
         text: z.string().describe('Markdown body: what changed and why'),
@@ -67,12 +89,33 @@ function makeServer(agent: string): McpServer {
         diff: z
           .string()
           .optional()
-          .describe('Optional unified diff to show instead of the auto-captured one')
+          .describe('Optional unified diff to show instead of the auto-captured one'),
+        notes: z
+          .array(
+            z.object({
+              file: z.string().describe('path relative to the project'),
+              anchor: z
+                .string()
+                .describe(
+                  'an exact snippet of ONE line you added (or removed) — Luna finds it and pins the note there'
+                ),
+              why: z
+                .string()
+                .describe(
+                  'plain language for someone who does not know this codebase: what this line does and why it is here'
+                ),
+              kind: z.enum(['added', 'removed']).optional().describe('default added')
+            })
+          )
+          .optional()
+          .describe(
+            'Explain the change line by line. One note per meaningful addition or removal, in the order the change flows (what runs first, then what it calls…). Luna numbers them as steps and shows each as a bubble on that line in the editor.'
+          )
       }
     },
-    async ({ title, text: body, files, diff }) => {
+    async ({ title, text: body, files, diff, notes }) => {
       const d = diff ?? (await diffFor(p(), files ?? []))
-      const file = vault.postSummary(p(), agent, title, body, d)
+      const file = vault.postSummary(p(), agent, title, body, d, notes ?? [])
       vault.appendEvent(p(), { kind: 'summary', from: agent, title, text: body.slice(0, 600) })
       return text(`Saved: ${file}`)
     }
@@ -99,15 +142,17 @@ function makeServer(agent: string): McpServer {
       inputSchema: { to: z.string(), text: z.string() }
     },
     async ({ to, text: body }) => {
-      vault.sendMessage(p(), agent, to, body)
+      const target = resolveTo(to)
+      if ('error' in target) return text(target.error)
+      vault.sendMessage(p(), agent, target.agent, body)
       vault.appendEvent(p(), {
         kind: 'message',
         from: agent,
-        to: vault.safe(to),
+        to: target.agent,
         text: body.slice(0, 600)
       })
-      onInbox(vault.safe(to))
-      return text(`Delivered to ${to}'s inbox`)
+      onInbox(target.agent, agent)
+      return text(`Delivered to ${target.agent}'s inbox`)
     }
   )
   s.registerTool(
@@ -128,21 +173,26 @@ function makeServer(agent: string): McpServer {
     },
     async ({ assignments }) => {
       const lines = assignments.map(({ to, task }) => {
+        const target = resolveTo(to)
+        if ('error' in target) return `${to}: ${target.error}`
+        // a task addressed to the planner would land in its own inbox and prompt its own terminal
+        if (target.agent === agent)
+          return `${to}: that is you — keep this part yourself instead of delegating it`
         vault.sendMessage(
           p(),
           agent,
-          to,
+          target.agent,
           `**TASK from ${agent}** — when done, call post_summary and send_message back to "${agent}".\n\n${task}`
         )
         vault.appendEvent(p(), {
           kind: 'task',
           from: agent,
-          to: vault.safe(to),
+          to: target.agent,
           text: task.slice(0, 600)
         })
-        const live = liveAgents().includes(vault.safe(to))
-        onInbox(vault.safe(to))
-        return `${to}: queued${live ? ' and their terminal was prompted' : ' (no Luna terminal open for them; they will see it on read_inbox)'}`
+        const live = liveAgents().includes(target.agent)
+        onInbox(target.agent, agent)
+        return `${target.agent}: queued${live ? ' and their terminal was prompted' : ' (no Luna terminal open for them; they will see it on read_inbox)'}`
       })
       return text(lines.join('\n'))
     }
@@ -239,7 +289,8 @@ export async function startHub(newPort: number, notify: (s: HubStatus) => void):
   // ponytail: stateless — fresh server+transport per request; identity = URL path
   app.post('/mcp/:agent', async (req, res) => {
     // per-terminal identity comes in a header (set from LUNA_AGENT); the path is the fallback
-    const agent = vault.safe(String(req.get('x-luna-agent') || req.params.agent))
+    const asked = vault.safe(identityFrom(req.get('x-luna-agent'), req.params.agent))
+    const agent = matchIdentity(asked, knownAgents()) ?? asked
     agents[agent] = Date.now()
     onChange(hubStatus())
     const s = makeServer(agent)
@@ -270,8 +321,23 @@ export async function startHub(newPort: number, notify: (s: HubStatus) => void):
       )
   })
 
-  await new Promise<void>((resolve, reject) => {
-    server = app.listen(port, '127.0.0.1', () => resolve()).on('error', reject)
+  // ponytail: a failed listen used to leave `running: true`, so Luna said "hub connected" while the
+  // agents were talking to whatever else holds the port — usually another Luna, whose vault then
+  // collects the messages this one is waiting for.
+  await new Promise<void>((resolve) => {
+    const s = app.listen(port, '127.0.0.1', () => {
+      server = s
+      error = ''
+      resolve()
+    })
+    s.on('error', (e: NodeJS.ErrnoException) => {
+      server = undefined
+      error =
+        e.code === 'EADDRINUSE'
+          ? `Port ${port} is already in use — another Luna is probably running. Close it, or pick a different port in Settings.`
+          : `Hub could not start: ${e.message}`
+      resolve()
+    })
   })
   onChange(hubStatus())
 }

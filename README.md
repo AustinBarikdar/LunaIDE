@@ -19,17 +19,29 @@ Several effects are ported from [animata.design](https://animata.design) (MIT) t
 
 On launch Luna asks how you want to work (tick "remember" to skip the question; the titlebar switch changes it any time):
 
-- **Agent view**: no editor. Workspaces run as tabs across the top (rename one to "Frontend", add "Backend"…), and each holds agent terminals docked with draggable dividers. Three layouts sit in the workspace bar: **Grid** balances them (two side by side, four corners at three or four, three across from five up), **Columns** keeps them all in one row, **Rows** stacks them. Drag any divider to size a pane; Luna remembers the sizes per workspace and layout, including after a restart.
+- **Agent view**: no editor. Workspaces run as tabs across the top, and terminals carry names of their own: double-click either to rename (call one "Frontend" and another "Backend"). A renamed terminal keeps the hub identity agents address it by, shown next to its name, and each holds agent terminals docked with draggable dividers. Three layouts sit in the workspace bar: **Grid** balances them (two side by side, four corners at three or four, three across from five up), **Columns** keeps them all in one row, **Rows** stacks them. Drag any divider to size a pane; Luna remembers the sizes per workspace and layout, including after a restart.
 - **IDE view**: files, editor, and the terminals as tabs in a bottom panel.
 
 Terminals belong to Luna, not to a view: switching views or workspaces keeps every agent running and replays its recent output when it comes back on screen.
 
 ## Layout
 
-- Left edge: activity buttons that switch the sidebar between **Files**, **Git** (init / commit / push / pull), **Summaries** (agent posts with diffs + roll-up), **Agents** (hub status + registration) and **Settings** (vault path, hub port, summarizer). Click the active one to collapse the sidebar. **Terms** at the bottom hides the editor for a terminal-only layout.
+- Left edge: activity buttons that switch the sidebar between **Files**, **Git** (init / commit / push / pull / history), **Summaries** (agent posts with diffs + roll-up), **Agents** (hub status + registration) and **Settings** (vault path, hub port, summarizer). Click the active one to collapse the sidebar. **Terms** at the bottom hides the editor for a terminal-only layout.
 - Center: CodeMirror editor (⌘S saves). Bottom: terminals (login shells, so `claude` and `codex` are on PATH) with one-click **Claude** / **Codex** launch buttons.
 - Clicking a file name inside a summary's diff opens it in the editor with added lines highlighted green and removed lines shown in red where they were.
 - The **+** button in the bottom-right corner blooms into a quick menu: jump to any view, flip Agent/IDE view, launch Claude or Codex, open Settings (⌘,).
+
+## Make it yours
+
+**Dark mode** lives in Settings → Appearance: light, dark, or follow the system. It carries the editor and the terminals with it.
+
+**Drag things where you want them.** Tabs slide side to side under the cursor: workspace tabs, editor tabs and terminal tabs all reorder by grabbing one and moving it, with a caret showing where it will land (drop past either end to send it there). The view buttons on the left edge and the terminal tiles reorder by dragging too. Drag one terminal onto another to swap their places in the grid. The rail order and the workspace order are remembered.
+
+**Move the panes too.** IDE view has five slots: the side panel, the editor, a panel to the right of the editor, the bottom panel, and the corner beside it. The right one starts empty, as a thin strip that says **Drag a panel here**; drop anything into it and it opens up.
+
+**Fold any of them away.** Hovering a pane shows two small controls on its left edge: the grip to drag it, and an arrow to fold it. A folded pane slides shut into a labelled strip with an arrow to bring it back, so you can hide the file tree while you work and get it back with one click. Dragging a divider all the way shut folds the pane the same way, and what you folded is still folded next time you open Luna. Every pane has a grip on its left edge that appears when you hover it. Drag one pane onto another slot and the two swap, so the terminals can sit on the left, the editor at the bottom, or the file tree beside the problems list. While you drag, the pane you picked up fades and the pane under the cursor turns into a translucent slot that names what is about to land there; the contents fade in when you let go. The arrangement is remembered; **Reset pane layout** in the quick menu (or the command palette) puts it back.
+
+**Pop a view out.** The last button on the left edge tears the current view off into its own window: Files, Source control, Summaries, Team, or Problems. It stays live, since both windows talk to the same Luna. Clicking a file there opens it in the main window's editor. Terminals stay in the main window.
 
 ## Status bar and quick search
 
@@ -45,6 +57,14 @@ The thin bottom status bar is available in both views. It shows the Git branch, 
 Use the popup's Files, Project Text, and Commands buttons to switch modes. Arrow keys navigate, Enter opens a result, and Escape closes the popup and restores focus. Opening a result in Agents mode switches to IDE mode and jumps to the file or match.
 
 Project searches respect nested `.gitignore` files and skip generated folders, symlinks, binary files, and files larger than 1 MB. Unsaved open-file contents take precedence over disk contents. Results are capped at 100 files or 500 text matches; narrow the query when a limit notice appears. Project text search supports literal text only, without project-wide replacement or regular expressions.
+
+## Source control
+
+The Git view carries the branch, the working-tree changes, a commit box, and a **History** graph at the bottom. Each commit sits on a rail: a filled dot is on the remote, a hollow dot with a **local** chip is still only in your clone, and a line marks where the upstream branch has got to. Branch and tag names show as chips, and merges are labelled.
+
+Click a commit to open it: the full message, every branch that contains it, and the diff in green and red. Click a file inside that diff to open it in the editor with the same highlighting.
+
+**Push** sends the branch when it already tracks a remote one. When it does not, the button reads **Publish branch** and asks before creating the branch on origin. With no remote at all, the **GitHub** section uses the GitHub CLI: it creates the repository (private or public), wires it up as origin and pushes. If the CLI is installed but signed out, Luna opens a terminal running its login for you; if it isn't installed, paste a remote URL under **Remote** instead.
 
 ## MCP hub
 
@@ -64,9 +84,9 @@ Luna serves `http://127.0.0.1:4141/mcp/<agent>` while a project is open. The pat
 
 ## Team prompt
 
-**Team prompt** (Agents view header, flower menu, or the command palette) opens a full-size composer. Every open agent terminal is a team member with its own hub identity: the first Claude terminal is `claude`, the second `claude-2`, and so on (Luna passes it as `LUNA_AGENT`; Claude sends it as an `X-Luna-Agent` header via `.mcp.json`, Codex via `env_http_headers`). Pick which terminal **plans** and tick which ones **code**, write the job, send. The planner is told to search shared memory, split the job, and delegate through `delegate`; if it is not also a coder it never writes code itself. Each task lands in that terminal's inbox and Luna types a nudge into it so it starts right away. Coders report back with `send_message` to the planner.
+**Team prompt** sits at the top of the **Team** view, and the crown button in the title bar (or ⌘T, or the command palette) jumps straight to it. Every open agent terminal is a team member with its own hub identity: the first Claude terminal is `claude`, the second `claude-2`, and so on (Luna passes it as `LUNA_AGENT`; Claude sends it as an `X-Luna-Agent` header via `.mcp.json`, Codex via `env_http_headers`). Pick which terminal **plans** and tick which ones **code**, write the job, send. The planner is told to search shared memory, split the job, and delegate through `delegate`; if it is not also a coder it never writes code itself. Each task lands in that terminal's inbox and Luna types a nudge into it so it starts right away. Coders report back with `send_message` to the planner.
 
-**Registration** lives in Settings → Agents (Register / Re-register with a preview of the exact changes). When you launch an agent that isn't registered yet, a notification in the bottom-right corner offers to do it in one click.
+**Registration** lives in Settings → Agents (Register / Re-register with a preview of the exact changes). When you launch an agent that isn't registered yet, a notification in the bottom-right corner offers to do it in one click. Each terminal's identity travels in both the URL and a header, so a CLI that drops custom headers still identifies itself. Registration is read when the CLI starts, so restart terminals that were already running: until then they all report under the base name and share one inbox, which is what makes a planner appear to hand tasks to itself and read an empty inbox. The Team view flags a terminal whose identity never reaches the hub.
 
 ## Linting, language servers, and plugins
 
@@ -94,17 +114,21 @@ Settings → Extensions → **Plugins** has three pages:
 
 Plugin names and agent IDs use lowercase letters and numbers separated by dots, hyphens, or underscores. Language-server arguments are entered one per line; file extensions are comma-separated. Plugin commands must already be installed and available on your terminal's PATH; enabled language servers start automatically. To share a plugin, export its folder or push it to a Git repository and share the URL. Full VS Code extensions cannot run in Luna; their language servers can.
 
-## Activity and vault graph
+## Team view and vault graph
 
-Every hub interaction (summaries, messages, delegated tasks, roll-ups, nudges, your dispatches) is appended to `<vault>/Luna/<project>/log.jsonl`. The **Activity** view shows the agents as a live network with animated arcs for recent messages, above a chat-style feed of who said what to whom. **Clear** empties the log for the project. In the Chat tab a composer at the top queues a note of your own: pick an agent (the current team leader comes first) and Luna drops it in that agent's inbox and nudges its terminal to read it, so you can change course mid-job without interrupting the run.
+Every hub interaction (summaries, messages, delegated tasks, roll-ups, nudges, your dispatches) is appended to `<vault>/Luna/<project>/log.jsonl`. Below the team prompt, the **Team** view lists the agents (launch, registration, hub status), what each open terminal is working on right now, and the activity: the agents as a live network with animated arcs for recent messages, above a timeline or a chat-style feed of who said what to whom. **Clear** empties the log for the project. In the Chat tab a composer at the top queues a note of your own: pick an agent (the current team leader comes first) and Luna drops it in that agent's inbox and nudges its terminal to read it, so you can change course mid-job without interrupting the run.
 
-The **Vault graph** button (activity bar or flower menu) opens an Obsidian-style force graph of the vault: agents, summaries, roll-ups, memory notes, and inboxes, linked by authorship, `[[wikilinks]]`, and which summaries each roll-up covered. Drag to arrange, double-click a node to open the file in the editor.
+The **Vault graph** button (activity bar) opens an Obsidian-style force graph of the vault: agents, summaries, roll-ups, memory notes, and inboxes, linked by authorship, `[[wikilinks]]`, and which summaries each roll-up covered. Drag to arrange, double-click a node to open the file in the editor.
 
-Register from the Agents tab. For Claude Code that writes `.mcp.json` plus a `UserPromptSubmit` hook in `.claude/settings.local.json` that tells Claude when its inbox has mail. For Codex it runs `codex mcp add luna --url …`.
+Register from Settings → Agents. For Claude Code that writes `.mcp.json` plus a `UserPromptSubmit` hook in `.claude/settings.local.json` that tells Claude when its inbox has mail. For Codex it runs `codex mcp add luna --url …`.
 
 ## Vault
 
 `<vault>/Luna/<project>/{summaries,inbox,memory,rollups}` as plain markdown, plus a universal `<vault>/Luna/shared/memory/` that every project and agent can pull from. Point Settings at your Obsidian vault to get graph and search for free; with no path set, Luna uses `<project>/.luna/vault` for project files and the app data folder for the shared memory. Team-prompt leaders are told to call `memory_search` before they start.
+
+## Notes on the code
+
+A summary can carry `notes`: one per meaningful line an agent added or removed, each with an exact snippet of that line and a plain-language reason, listed in the order the change flows. In the Summaries view a post shows its **How it flows** steps right under the title, with an **Explain on code** button in its header; the prose follows, and the raw diff is folded behind a toggle so the list stays short and quick. Click a step (or the button) and the file opens with the diff highlighted, every note drawn as a bubble under the line it explains, and a step bar under the editor tabs that walks the flow with previous and next, opening other files as the steps move into them. A note about a removal hangs off the red line. The idea is that someone who does not know the codebase can read a change top to bottom without opening anything else. **Clear** in the Summaries header deletes the posts (roll-ups stay), after a confirmation.
 
 ## Roll-up
 

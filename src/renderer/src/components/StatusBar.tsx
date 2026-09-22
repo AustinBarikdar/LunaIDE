@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { editorStatus } from './editorStore'
 import { LuGitBranch, LuCircleX, LuTriangleAlert, LuSearch, LuRadio } from 'react-icons/lu'
 import type { GitStatus, HubStatus } from '../../../preload/index.d'
-import { modifierLabel, type EditorStatus } from './commands'
+import { modifierLabel } from './commands'
 
 type Props = {
   project: string | null
   errors: number
   warnings: number
-  editor: EditorStatus | null
+  /** Path of the active editor tab; the cursor readout is shown only while it matches. */
+  active: string | null
+  /** False in Agent view and terminals-only mode, where there is no editor to report on. */
+  showEditor: boolean
   hub: HubStatus | null
   onGit: () => void
   onProblems: () => void
@@ -16,6 +20,8 @@ type Props = {
 }
 
 export default function StatusBar(props: Props): React.JSX.Element {
+  const status = useSyncExternalStore(editorStatus.subscribe, editorStatus.get)
+  const editor = props.showEditor && status && status.path === props.active ? status : null
   const [snapshot, setSnapshot] = useState<{
     project: string | null
     status: GitStatus | null
@@ -92,24 +98,30 @@ export default function StatusBar(props: Props): React.JSX.Element {
         <span className="status-shortcut">{modifierLabel()}P</span>
       </button>
       <div className="status-right">
-        {props.editor && (
+        {editor && (
           <>
             <span className="status-cursor">
-              Ln {props.editor.line}, Col {props.editor.column}
+              Ln {editor.line}, Col {editor.column}
             </span>
-            <span className="status-language">{props.editor.language}</span>
+            <span className="status-language">{editor.language}</span>
           </>
         )}
         <button
           title={
-            props.hub?.running ? `Hub connected on port ${props.hub.port}` : 'Hub disconnected'
+            props.hub?.running
+              ? `Hub connected on port ${props.hub.port}`
+              : (props.hub?.error ?? 'Hub disconnected')
           }
           aria-label="Open hub settings"
           onClick={props.onHub}
         >
           <LuRadio />
           <span className="status-hub-label">
-            {props.hub?.running ? 'Hub connected' : 'Hub offline'}
+            {props.hub?.running
+              ? 'Hub connected'
+              : props.hub?.error
+                ? 'Hub port in use'
+                : 'Hub offline'}
           </span>
         </button>
       </div>

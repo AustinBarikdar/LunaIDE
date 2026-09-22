@@ -49,10 +49,16 @@ const api: LunaApi = {
     setRemote: (url) => ipcRenderer.invoke('git', 'setRemote', url),
     commit: (m) => ipcRenderer.invoke('git', 'commit', m),
     push: () => ipcRenderer.invoke('git', 'push'),
-    pull: () => ipcRenderer.invoke('git', 'pull')
+    pull: () => ipcRenderer.invoke('git', 'pull'),
+    publish: () => ipcRenderer.invoke('git', 'publish'),
+    log: () => ipcRenderer.invoke('git', 'log'),
+    show: (hash) => ipcRenderer.invoke('git', 'show', hash),
+    gh: () => ipcRenderer.invoke('git', 'gh'),
+    ghCreate: (name, visibility) => ipcRenderer.invoke('git', 'ghCreate', name, visibility)
   },
   summaries: {
     list: () => ipcRenderer.invoke('summaries-list'),
+    clear: () => ipcRenderer.invoke('summaries-clear'),
     rollups: () => ipcRenderer.invoke('rollups-list'),
     rollup: () => ipcRenderer.invoke('rollup'),
     onChanged: (cb) => on('vault-changed', cb)
@@ -69,6 +75,12 @@ const api: LunaApi = {
     register: (a) => ipcRenderer.invoke('agents-register', a)
   },
   openFolder: () => ipcRenderer.invoke('open-folder'),
+  currentProject: () => ipcRenderer.invoke('project-get'),
+  popout: {
+    open: (view) => ipcRenderer.invoke('popout-open', view),
+    reveal: (rel, diff) => ipcRenderer.invoke('popout-reveal', rel, diff),
+    onReveal: (cb) => on('popout-reveal', cb)
+  },
   openProject: (dir) => ipcRenderer.invoke('open-project', dir),
   pickDir: () => ipcRenderer.invoke('pick-dir'),
   readDir: (p) => ipcRenderer.invoke('read-dir', p),
@@ -86,7 +98,8 @@ const api: LunaApi = {
     resize: (id, cols, rows) => ipcRenderer.send('pty-resize', id, cols, rows),
     kill: (id) => ipcRenderer.send('pty-kill', id),
     onData: (cb) => on('pty-data', cb),
-    onExit: (cb) => on('pty-exit', cb)
+    onExit: (cb) => on('pty-exit', cb),
+    onAgent: (cb) => on('pty-agent', cb)
   }
 }
 
