@@ -5,6 +5,10 @@ export type Settings = {
   theme: 'light' | 'dark' | 'system'
   /** Write a file on its own a moment after typing stops. */
   autosave: boolean
+  editorFontSize: number
+  tabSize: number
+  wordWrap: boolean
+  terminalFontSize: number
   hubPort: number
   summarizer: 'claude' | 'codex'
   summarizerModel: string

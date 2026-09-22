@@ -14,7 +14,8 @@ import {
   LuPalette,
   LuSun,
   LuMoon,
-  LuMonitor
+  LuMonitor,
+  LuCode
 } from 'react-icons/lu'
 import type { Settings, ServerConfig, AgentName, Preview } from '../../../preload/index.d'
 import { Avatar } from './ui'
@@ -25,7 +26,14 @@ type Props = {
   onClose: () => void
   initialTab?: SettingsTab
 }
-export type SettingsTab = 'appearance' | 'vault' | 'hub' | 'rollup' | 'extensions' | 'agents'
+export type SettingsTab =
+  'appearance' | 'editor' | 'vault' | 'hub' | 'rollup' | 'extensions' | 'agents'
+
+/** A number box's value, kept inside its range; an empty box falls back to the default. */
+const clamp = (v: string, lo: number, hi: number, dflt: number): number => {
+  const n = Number(v)
+  return Number.isFinite(n) && v !== '' ? Math.min(hi, Math.max(lo, Math.round(n))) : dflt
+}
 
 const THEMES = [
   { id: 'light' as const, label: 'Light', icon: <LuSun /> },
@@ -57,6 +65,12 @@ export default function SettingsModal({
             onClick={() => setTab('appearance')}
           >
             <LuPalette /> Appearance
+          </button>
+          <button
+            className={'nav-item' + (tab === 'editor' ? ' on' : '')}
+            onClick={() => setTab('editor')}
+          >
+            <LuCode /> Editor
           </button>
           <button
             className={'nav-item' + (tab === 'vault' ? ' on' : '')}
@@ -113,7 +127,52 @@ export default function SettingsModal({
                   </button>
                 ))}
               </div>
-              <h2 style={{ marginTop: 18 }}>Editor</h2>
+            </>
+          )}
+          {tab === 'editor' && (
+            <>
+              <h2>Editor</h2>
+              <p className="dim">How the code and the terminals read. Changes apply at once.</p>
+              <div className="row wrap">
+                <label>
+                  Editor font size
+                  <input
+                    type="number"
+                    min={9}
+                    max={32}
+                    value={settings.editorFontSize}
+                    onChange={(e) => save({ editorFontSize: clamp(e.target.value, 9, 32, 13) })}
+                  />
+                </label>
+                <label>
+                  Terminal font size
+                  <input
+                    type="number"
+                    min={9}
+                    max={32}
+                    value={settings.terminalFontSize}
+                    onChange={(e) => save({ terminalFontSize: clamp(e.target.value, 9, 32, 13) })}
+                  />
+                </label>
+                <label>
+                  Tab size
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={settings.tabSize}
+                    onChange={(e) => save({ tabSize: clamp(e.target.value, 1, 8, 2) })}
+                  />
+                </label>
+              </div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={settings.wordWrap}
+                  onChange={(e) => save({ wordWrap: e.target.checked })}
+                />
+                Word wrap: long lines fold at the edge instead of scrolling sideways
+              </label>
               <label className="check">
                 <input
                   type="checkbox"
@@ -123,8 +182,8 @@ export default function SettingsModal({
                 Autosave: write a file on its own about a second after typing stops
               </label>
               <p className="dim">
-                Off, a changed tab shows a dot and asks before it closes. ⌘S saves one file, ⌘⇧S
-                saves them all.
+                With autosave off, a changed tab shows a dot and asks before it closes. ⌘S saves one
+                file, ⌘⇧S saves them all.
               </p>
             </>
           )}

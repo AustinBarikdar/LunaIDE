@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { live } from './termStore'
-import { termTheme } from './theme'
+import { termTheme, terminalFontSize } from './theme'
 
 /** agent = hub identity for agent terminals (claude, claude-2, codex…); cmd = what to run */
 /** cwd: a folder other than the project root, e.g. "Open terminal here" from the file tree. */
@@ -37,7 +37,7 @@ export default function TermView({
         theme: termTheme(),
         allowTransparency: true,
         fontFamily: 'SF Mono, Menlo, monospace',
-        fontSize: 13,
+        fontSize: terminalFontSize(),
         lineHeight: 1.25,
         cursorBlink: true,
         scrollback: 5000

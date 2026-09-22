@@ -13,6 +13,9 @@ import { markdown } from '@codemirror/lang-markdown'
 import { css } from '@codemirror/lang-css'
 import { html } from '@codemirror/lang-html'
 import { search } from '@codemirror/search'
+import { EditorState } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
+import { indentUnit } from '@codemirror/language'
 import {
   LuX,
   LuFileCode,
@@ -63,6 +66,9 @@ type Props = {
   onSave: (path: string) => Promise<void>
   /** Write a file on its own a moment after typing stops. */
   autosave?: boolean
+  fontSize?: number
+  tabSize?: number
+  wordWrap?: boolean
 }
 
 const isMarkdown = (path: string): boolean => /\.(md|markdown)$/i.test(path)
@@ -150,7 +156,10 @@ function useExtensions(
   path: string | undefined,
   diff: string | undefined,
   notes: Flow['notes'] | undefined,
-  focus: number | undefined
+  focus: number | undefined,
+  fontSize: number,
+  tabSize: number,
+  wrap: boolean
 ): Extension[] {
   return useMemo(
     () =>
@@ -159,10 +168,14 @@ function useExtensions(
             ...lang(path),
             search(),
             lspExtensions(path),
+            EditorView.theme({ '&': { fontSize: `${fontSize}px` } }),
+            EditorState.tabSize.of(tabSize),
+            indentUnit.of(' '.repeat(tabSize)),
+            ...(wrap ? [EditorView.lineWrapping] : []),
             ...(diff ? [diffOverlay(diff, notes ?? [], path, focus ?? 0)] : [])
           ]
         : [],
-    [path, diff, notes, focus]
+    [path, diff, notes, focus, fontSize, tabSize, wrap]
   )
 }
 
@@ -188,7 +201,10 @@ export default function Editor({
   onStatus,
   onOpenFile,
   onSave,
-  autosave
+  autosave,
+  fontSize = 13,
+  tabSize = 2,
+  wordWrap = false
 }: Props): React.JSX.Element {
   const file = files.find((f) => f.path === active)
   /** Markdown files being shown rendered instead of as source. */
@@ -233,7 +249,15 @@ export default function Editor({
     [activePath]
   )
   const isCommit = !!file?.commit
-  const extensions = useExtensions(activePath, activeDiff, activeNotes, activeFocus)
+  const extensions = useExtensions(
+    activePath,
+    activeDiff,
+    activeNotes,
+    activeFocus,
+    fontSize,
+    tabSize,
+    wordWrap
+  )
 
   // tell the language servers which files are open
   useEffect(() => {
@@ -293,11 +317,24 @@ export default function Editor({
     } else drop(path)
   }
   const closingFile = closing ? files.find((f) => f.path === closing) : undefined
-  // ⌘W arrives from App as an event, so the dirty check above runs for it too
+  // ⌘W and "Close Saved Tabs" arrive from App as events, so the buffer check runs for them too
   useEffect(() => {
-    const h = (e: Event): void => close((e as CustomEvent<string>).detail)
-    window.addEventListener('luna:close-tab', h)
-    return () => window.removeEventListener('luna:close-tab', h)
+    const one = (e: Event): void => close((e as CustomEvent<string>).detail)
+    const saved = (): void => {
+      flushEdit()
+      const held = pendingEdit.current
+      const keep = files.filter(
+        (f) => !f.commit && (held?.path === f.path ? held.value : f.content) !== f.saved
+      )
+      setFiles(keep)
+      setActive(keep.some((f) => f.path === active) ? active : (keep[0]?.path ?? null))
+    }
+    window.addEventListener('luna:close-tab', one)
+    window.addEventListener('luna:close-saved', saved)
+    return () => {
+      window.removeEventListener('luna:close-tab', one)
+      window.removeEventListener('luna:close-saved', saved)
+    }
   })
   const togglePreview = (path: string): void => {
     flushEdit()

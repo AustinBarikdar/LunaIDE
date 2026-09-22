@@ -7,7 +7,7 @@ import AgentView from './components/AgentView'
 import ModeChooser, { Mode } from './components/ModeChooser'
 import type { Term } from './components/TermView'
 import { disposeTerm } from './components/termStore'
-import { applyTheme } from './components/theme'
+import { applyTheme, applyTerminalFont } from './components/theme'
 import { editorStatus } from './components/editorStore'
 import { dragProps, dragSource, dropProps, move, moveById } from './components/dnd'
 import GitTab from './tabs/GitTab'
@@ -379,6 +379,8 @@ export default function App(): React.JSX.Element {
 
   const theme = settings?.theme ?? 'system'
   useEffect(() => applyTheme(theme), [theme])
+  const terminalFontSize = settings?.terminalFontSize ?? 13
+  useEffect(() => applyTerminalFont(terminalFontSize), [terminalFontSize])
 
   const saveSetting = async (patch: Partial<Settings>): Promise<void> =>
     setSettings(await window.luna.settings.save(patch))
@@ -617,11 +619,9 @@ export default function App(): React.JSX.Element {
       label: 'Close Saved Tabs',
       keywords: 'close all others',
       enabled: files.length > 0,
-      // tabs with unsaved edits stay open, so nothing is lost without a word
-      run: () => {
-        setFiles(dirty)
-        setActive((a) => (dirty.some((f) => f.path === a) ? a : (dirty[0]?.path ?? null)))
-      }
+      // tabs with unsaved edits stay open, so nothing is lost without a word; the editor decides
+      // which those are, since it holds the edit not yet flushed to state
+      run: () => window.dispatchEvent(new Event('luna:close-saved'))
     },
     { id: 'mode.ide', label: 'Switch to IDE Mode', run: () => setMode('ide') },
     { id: 'mode.agent', label: 'Switch to Agents Mode', run: () => setMode('agent') },
@@ -854,6 +854,9 @@ export default function App(): React.JSX.Element {
               onOpenFile={openDiff}
               onSave={saveFile}
               autosave={settings?.autosave}
+              fontSize={settings?.editorFontSize}
+              tabSize={settings?.tabSize}
+              wordWrap={settings?.wordWrap}
             />
           ) : (
             welcome

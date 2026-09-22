@@ -45,7 +45,9 @@ Terminals belong to Luna, not to a view: switching views or workspaces keeps eve
 
 ## Editor
 
-A tab with unsaved edits shows a dot. Closing it, with the **×** or ⌘W, asks whether to save first; **Close Saved Tabs** in the command palette closes everything that is clean and leaves the rest open. ⌘S saves the active file and ⌘⇧S saves them all. Settings → Appearance → **Autosave** writes a file on its own about a second after typing stops, in which case nothing ever asks.
+A tab with unsaved edits shows a dot. Closing it, with the **×** or ⌘W, asks whether to save first; **Close Saved Tabs** in the command palette closes everything that is clean and leaves the rest open. ⌘S saves the active file and ⌘⇧S saves them all.
+
+Settings → **Editor** holds the editor font size, the terminal font size, the tab size, **Word wrap**, and **Autosave**, which writes a file on its own about a second after typing stops (nothing ever asks then). Every one of them applies at once, terminals already running included.
 
 A Markdown file has a **Preview** button in the tab bar that shows it rendered in place of the source; **Edit** brings the source back.
 
