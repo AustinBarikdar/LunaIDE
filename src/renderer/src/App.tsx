@@ -462,6 +462,16 @@ export default function App(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [mode, terminalOnly, openFile]
   )
+  // a file path clicked in a terminal (printed lines are 1-based; 0 means none was printed)
+  useEffect(() => {
+    const h = (e: Event): void => {
+      const { path, line, col } = (e as CustomEvent<{ path: string; line: number; col: number }>)
+        .detail
+      reveal(path, Math.max(0, line - 1), Math.max(0, col - 1))
+    }
+    window.addEventListener('luna:open-path', h)
+    return () => window.removeEventListener('luna:open-path', h)
+  }, [reveal])
   const openSearch = (next: SearchMode): void => {
     if (!searchMode) searchReturnFocus.current = document.activeElement as HTMLElement | null
     setSearchMode(next)

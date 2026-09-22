@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
-import { watch, writeFileSync, FSWatcher } from 'fs'
+import { watch, writeFileSync, existsSync, FSWatcher } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { readDir, readFile, writeFile, create as fsCreate, rename as fsRename } from './fs'
@@ -203,6 +203,8 @@ app.whenReady().then(() => {
   // to the Trash, so a wrong click is not final
   ipcMain.handle('fs-trash', (_e, p: string) => shell.trashItem(p))
   ipcMain.handle('fs-reveal', (_e, p: string) => shell.showItemInFolder(p))
+  ipcMain.handle('fs-exists', (_e, p: string) => existsSync(p))
+  ipcMain.handle('home-dir', () => app.getPath('home'))
   // ponytail: a native popup instead of a positioned div; resolves with the id picked, or ''
   ipcMain.handle('context-menu', (e, items: { id: string; label: string }[]) => {
     const window = BrowserWindow.fromWebContents(e.sender) ?? undefined

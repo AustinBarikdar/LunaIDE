@@ -22,6 +22,8 @@ On launch Luna asks how you want to work (tick "remember" to skip the question; 
 - **Agent view**: no editor. Workspaces run as tabs across the top, and terminals carry names of their own: double-click either to rename (call one "Frontend" and another "Backend"). A renamed terminal keeps the hub identity agents address it by, shown next to its name, and each holds agent terminals docked with draggable dividers. Three layouts sit in the workspace bar: **Grid** balances them (two side by side, four corners at three or four, three across from five up), **Columns** keeps them all in one row, **Rows** stacks them. Drag any divider to size a pane; Luna remembers the sizes per workspace and layout, including after a restart.
 - **IDE view**: files, editor, and the terminals as tabs in a bottom panel.
 
+File paths in terminal output are links: ⌘-click one (as you would a URL) and the file opens in the editor, at the line and column when the output printed them, as in `src/main/git.ts:12:5` or `a.tsx(3,4)`. Relative paths resolve against the terminal's folder, and only paths that exist light up.
+
 Terminals belong to Luna, not to a view: switching views or workspaces keeps every agent running and replays its recent output when it comes back on screen.
 
 ## Layout

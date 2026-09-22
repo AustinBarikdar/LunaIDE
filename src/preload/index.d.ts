@@ -226,6 +226,8 @@ export interface LunaApi {
     rename(path: string, name: string): Promise<string>
     trash(path: string): Promise<void>
     reveal(path: string): Promise<void>
+    exists(path: string): Promise<boolean>
+    home(): Promise<string>
   }
   /** Native popup at the cursor; resolves with the chosen id, '' if dismissed. `id: '-'` is a separator. */
   contextMenu(items: { id: string; label: string }[]): Promise<string>
