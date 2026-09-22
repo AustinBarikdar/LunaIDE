@@ -596,7 +596,7 @@ label + label {
   width: 100%;
   cursor: pointer;
 }
-.select-pill::after {
+.titlebar .select-pill::after {
   content: 'Recent';
   font-size: 12.5px;
   color: var(--fg);
@@ -3382,6 +3382,22 @@ body.sliding [data-panel] {
 button.danger {
   color: var(--danger);
   border-color: rgba(214, 69, 69, 0.4);
+}
+
+/* "save before closing?" under the editor tabs, and rendered markdown in place of the source */
+.ask.closing {
+  margin: 0;
+  border-radius: 0;
+  border-width: 0 0 1px;
+  flex-shrink: 0;
+}
+.md-preview {
+  padding: 14px 22px 40px;
+  max-width: 860px;
+  line-height: 1.55;
+}
+.md-preview .md {
+  font-size: 13.5px;
 }
 
 /* the flow walker under the editor tabs */
