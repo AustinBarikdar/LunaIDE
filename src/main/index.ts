@@ -56,12 +56,21 @@ function configureLsp(): void {
   lsp.configure(
     [...getSettings().languageServers, ...plugins.pluginServers()],
     project,
-    (path, source, diags) => win.webContents.send('lsp-diagnostics', path, source, diags)
+    (path, source, diags) => toMain('lsp-diagnostics', path, source, diags)
   )
 }
 function pluginsChanged(): void {
   configureLsp()
   for (const w of everyWindow()) w.webContents.send('plugins-changed')
+}
+
+/**
+ * Send to the main window if it still exists. On macOS the app outlives its window, and a file
+ * watcher or a language server firing after the close used to throw "Object has been destroyed"
+ * as an uncaught exception dialog, once per event.
+ */
+const toMain = (channel: string, ...args: unknown[]): void => {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
 }
 
 const notifyHub = (s: HubStatus): void => {
@@ -132,13 +141,13 @@ function openProject(dir: string): string {
     // git status for nothing; the vault has watchers of its own
     if (!rel || /node_modules|\.git\/|^(out|dist)\/|^\.luna\/vault\//.test(rel)) return
     if (/(^|\/)(eslint\.config\.[cm]?js|\.eslintrc[^/]*)$/.test(rel)) lsp.eslintConfigChanged()
-    win.webContents.send('file-changed', join(dir, rel))
+    toMain('file-changed', join(dir, rel))
   })
   project = dir
   projectSearch.setProject(dir)
   setProject(dir)
   lsp.configure(getSettings().languageServers, dir, (path, source, diags) =>
-    win.webContents.send('lsp-diagnostics', path, source, diags)
+    toMain('lsp-diagnostics', path, source, diags)
   )
   vaultWatcher?.close()
   vaultWatcher = watch(join(vaultRoot(dir), 'summaries'), () =>
@@ -180,7 +189,7 @@ app.whenReady().then(() => {
   ipcMain.handle('popout-open', (_e, view: string) => openPopout(view))
   ipcMain.handle('popout-reveal', (_e, rel: string, diff?: string) => {
     if (!win || win.isDestroyed()) return
-    win.webContents.send('popout-reveal', rel, diff)
+    toMain('popout-reveal', rel, diff)
     win.focus()
   })
   ipcMain.handle('project-get', () => project)
