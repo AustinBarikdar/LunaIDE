@@ -69,6 +69,8 @@ type Props = {
   fontSize?: number
   tabSize?: number
   wordWrap?: boolean
+  /** Go-to-definition target: open that file and put the cursor there. */
+  onGoto?: (path: string, line: number, ch: number) => void
 }
 
 const isMarkdown = (path: string): boolean => /\.(md|markdown)$/i.test(path)
@@ -159,7 +161,8 @@ function useExtensions(
   focus: number | undefined,
   fontSize: number,
   tabSize: number,
-  wrap: boolean
+  wrap: boolean,
+  goto: Props['onGoto']
 ): Extension[] {
   return useMemo(
     () =>
@@ -167,7 +170,7 @@ function useExtensions(
         ? [
             ...lang(path),
             search(),
-            lspExtensions(path),
+            lspExtensions(path, goto),
             EditorView.theme({ '&': { fontSize: `${fontSize}px` } }),
             EditorState.tabSize.of(tabSize),
             indentUnit.of(' '.repeat(tabSize)),
@@ -175,7 +178,7 @@ function useExtensions(
             ...(diff ? [diffOverlay(diff, notes ?? [], path, focus ?? 0)] : [])
           ]
         : [],
-    [path, diff, notes, focus, fontSize, tabSize, wrap]
+    [path, diff, notes, focus, fontSize, tabSize, wrap, goto]
   )
 }
 
@@ -204,7 +207,8 @@ export default function Editor({
   autosave,
   fontSize = 13,
   tabSize = 2,
-  wordWrap = false
+  wordWrap = false,
+  onGoto
 }: Props): React.JSX.Element {
   const file = files.find((f) => f.path === active)
   /** Markdown files being shown rendered instead of as source. */
@@ -256,7 +260,8 @@ export default function Editor({
     activeFocus,
     fontSize,
     tabSize,
-    wordWrap
+    wordWrap,
+    onGoto
   )
 
   // tell the language servers which files are open

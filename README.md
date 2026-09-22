@@ -110,7 +110,7 @@ Luna serves `http://127.0.0.1:4141/mcp/<agent>` while a project is open. The pat
 
 ## Linting, language servers, and plugins
 
-Luna speaks the Language Server Protocol (what most VS Code language extensions wrap). Bundled and on by default: TypeScript/JavaScript, JSON, CSS/SCSS/Less, HTML, and your project's own ESLint (run on the live buffer, no config needed beyond the project's). Diagnostics show as squiggles, gutter marks, a count on each editor tab, and in the **Problems** panel docked in the IDE's bottom-right corner next to the terminals (toggle it from the editor tab bar; click a problem to jump to it). Completion comes from the same servers. Add any other server (pyright, rust-analyzer, gopls…) in Settings → Extensions by command.
+Luna speaks the Language Server Protocol (what most VS Code language extensions wrap). Bundled and on by default: TypeScript/JavaScript, JSON, CSS/SCSS/Less, HTML, and your project's own ESLint (run on the live buffer, no config needed beyond the project's). Hovering a symbol shows what the server knows about it (its type, its signature, its docs). ⌘-click a symbol, or press F12 with the cursor on it, to jump to where it is defined, in another file if that is where it lives. Diagnostics show as squiggles, gutter marks, a count on each editor tab, and in the **Problems** panel docked in the IDE's bottom-right corner next to the terminals (toggle it from the editor tab bar; click a problem to jump to it). Completion comes from the same servers. Add any other server (pyright, rust-analyzer, gopls…) in Settings → Extensions by command.
 
 **Plugins** are folders with a `luna-plugin.json`, installed under Luna's app data:
 

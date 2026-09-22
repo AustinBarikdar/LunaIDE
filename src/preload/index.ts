@@ -32,6 +32,8 @@ const api: LunaApi = {
     change: (p, t) => ipcRenderer.invoke('lsp-change', p, t),
     close: (p) => ipcRenderer.invoke('lsp-close', p),
     complete: (p, l, c) => ipcRenderer.invoke('lsp-complete', p, l, c),
+    hover: (p, l, c) => ipcRenderer.invoke('lsp-hover', p, l, c),
+    definition: (p, l, c) => ipcRenderer.invoke('lsp-definition', p, l, c),
     onDiagnostics: (cb) => on('lsp-diagnostics', cb)
   },
   activity: {

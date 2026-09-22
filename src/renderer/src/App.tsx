@@ -452,12 +452,16 @@ export default function App(): React.JSX.Element {
       })
     })
   }
-  const reveal = (path: string, line: number, ch: number): void => {
-    if (mode === 'agent') setMode('ide')
-    if (terminalOnly) toggleTerminalOnly()
-    openFile(path)
-    revealInEditor(path, line, ch)
-  }
+  const reveal = useCallback(
+    (path: string, line: number, ch: number): void => {
+      if (mode === 'agent') setMode('ide')
+      if (terminalOnly) toggleTerminalOnly()
+      openFile(path)
+      revealInEditor(path, line, ch)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, terminalOnly, openFile]
+  )
   const openSearch = (next: SearchMode): void => {
     if (!searchMode) searchReturnFocus.current = document.activeElement as HTMLElement | null
     setSearchMode(next)
@@ -914,6 +918,7 @@ export default function App(): React.JSX.Element {
               fontSize={settings?.editorFontSize}
               tabSize={settings?.tabSize}
               wordWrap={settings?.wordWrap}
+              onGoto={reveal}
             />
           ) : (
             welcome

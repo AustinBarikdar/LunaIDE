@@ -321,6 +321,12 @@ ${prompt}`
   ipcMain.handle('lsp-complete', (_e, path: string, line: number, ch: number) =>
     lsp.complete(path, line, ch)
   )
+  ipcMain.handle('lsp-hover', (_e, path: string, line: number, ch: number) =>
+    lsp.hover(path, line, ch)
+  )
+  ipcMain.handle('lsp-definition', (_e, path: string, line: number, ch: number) =>
+    lsp.definition(path, line, ch)
+  )
   ipcMain.handle('activity-list', () => (project ? readEvents(project) : []))
   ipcMain.handle('activity-clear', () => {
     if (project) writeFileSync(join(vaultRoot(project), 'log.jsonl'), '')

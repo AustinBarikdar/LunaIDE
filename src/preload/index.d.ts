@@ -143,6 +143,14 @@ export interface LunaApi {
     change(path: string, text: string): Promise<void>
     close(path: string): Promise<void>
     complete(path: string, line: number, ch: number): Promise<LspCompletion[]>
+    /** Plain-text description of the symbol at line/ch (0-based), or ''. */
+    hover(path: string, line: number, ch: number): Promise<string>
+    /** Where the symbol at line/ch is defined; empty when the server has no answer. */
+    definition(
+      path: string,
+      line: number,
+      ch: number
+    ): Promise<{ path: string; line: number; ch: number }[]>
     onDiagnostics(cb: (path: string, source: string, diags: LspDiagnostic[]) => void): () => void
   }
   activity: {
