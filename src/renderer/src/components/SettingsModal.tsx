@@ -29,10 +29,35 @@ type Props = {
 export type SettingsTab =
   'appearance' | 'editor' | 'vault' | 'hub' | 'rollup' | 'extensions' | 'agents'
 
-/** A number box's value, kept inside its range; an empty box falls back to the default. */
-const clamp = (v: string, lo: number, hi: number, dflt: number): number => {
-  const n = Number(v)
-  return Number.isFinite(n) && v !== '' ? Math.min(hi, Math.max(lo, Math.round(n))) : dflt
+/**
+ * A number box that saves as you type, but only once the value sits inside its range: typing
+ * "18" passes through "1" without the box snapping to the minimum under your fingers.
+ */
+function NumberBox({
+  value,
+  min,
+  max,
+  onSave
+}: {
+  value: number
+  min: number
+  max: number
+  onSave: (n: number) => void
+}): React.JSX.Element {
+  return (
+    <input
+      key={value}
+      type="number"
+      min={min}
+      max={max}
+      defaultValue={value}
+      onChange={(e) => {
+        const n = Number(e.target.value)
+        if (e.target.value !== '' && Number.isInteger(n) && n >= min && n <= max && n !== value)
+          onSave(n)
+      }}
+    />
+  )
 }
 
 const THEMES = [
@@ -136,32 +161,29 @@ export default function SettingsModal({
               <div className="row wrap">
                 <label>
                   Editor font size
-                  <input
-                    type="number"
+                  <NumberBox
+                    value={settings.editorFontSize}
                     min={9}
                     max={32}
-                    value={settings.editorFontSize}
-                    onChange={(e) => save({ editorFontSize: clamp(e.target.value, 9, 32, 13) })}
+                    onSave={(n) => save({ editorFontSize: n })}
                   />
                 </label>
                 <label>
                   Terminal font size
-                  <input
-                    type="number"
+                  <NumberBox
+                    value={settings.terminalFontSize}
                     min={9}
                     max={32}
-                    value={settings.terminalFontSize}
-                    onChange={(e) => save({ terminalFontSize: clamp(e.target.value, 9, 32, 13) })}
+                    onSave={(n) => save({ terminalFontSize: n })}
                   />
                 </label>
                 <label>
                   Tab size
-                  <input
-                    type="number"
+                  <NumberBox
+                    value={settings.tabSize}
                     min={1}
                     max={8}
-                    value={settings.tabSize}
-                    onChange={(e) => save({ tabSize: clamp(e.target.value, 1, 8, 2) })}
+                    onSave={(n) => save({ tabSize: n })}
                   />
                 </label>
               </div>
