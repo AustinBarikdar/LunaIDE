@@ -55,7 +55,6 @@ import {
   LuCode,
   LuNetwork,
   LuTriangleAlert,
-  LuExternalLink,
   LuGripVertical,
   LuChevronLeft,
   LuChevronRight,
@@ -613,6 +612,26 @@ export default function App(): React.JSX.Element {
     for (const slot of SLOTS) if (collapsed[slot]) panelApi.current.get(slot)?.collapse()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupKey])
+  /**
+   * Dragging a pane's grip out past the window's edge tears its view off into its own window,
+   * and the pane makes way here. Terminals and the editor stay put: a torn-off window has neither.
+   */
+  const TEAR_OFF: PaneId[] = ['sidebar', 'problems']
+  // reached through an event so the render tree never references the fold logic (and its refs)
+  useEffect(() => {
+    const h = (e: Event): void => {
+      const { pane, slot } = (e as CustomEvent<{ pane: PaneId; slot: Slot }>).detail
+      if (pane === 'sidebar') {
+        window.luna.popout.open(view ?? 'files')
+        if (!collapsed[slot]) toggleCollapse(slot)
+      } else if (pane === 'problems') {
+        window.luna.popout.open('problems')
+        if (problemsOpen) toggleProblems()
+      }
+    }
+    window.addEventListener('luna:tear-off', h)
+    return () => window.removeEventListener('luna:tear-off', h)
+  })
   /** The Problems pane only takes its slot while it is switched on. */
   const slotShown = (s: Slot): boolean => layout[s] !== 'problems' || problemsOpen
   const slotProps = (slot: Slot): ReturnType<typeof dropProps> =>
@@ -868,9 +887,23 @@ export default function App(): React.JSX.Element {
         <div className="pane-rail">
           <button
             className="pane-grip"
-            title={`Drag to move ${PANE_NAMES[c]}`}
+            title={
+              TEAR_OFF.includes(c)
+                ? `Drag to move ${PANE_NAMES[c]}, or out of the window to open it on its own`
+                : `Drag to move ${PANE_NAMES[c]}`
+            }
             aria-label={`Move ${PANE_NAMES[c]}`}
-            {...dragSource(c, 'luna/pane', PANE_NAMES[c])}
+            {...dragSource(
+              c,
+              'luna/pane',
+              PANE_NAMES[c],
+              TEAR_OFF.includes(c)
+                ? () =>
+                    window.dispatchEvent(
+                      new CustomEvent('luna:tear-off', { detail: { pane: c, slot } })
+                    )
+                : undefined
+            )}
           >
             <LuGripVertical />
           </button>
@@ -1086,22 +1119,14 @@ export default function App(): React.JSX.Element {
             <button
               key={v.id}
               className={'act' + (view === v.id ? ' active' : '')}
-              data-tip={v.label + ' — drag to reorder'}
+              data-tip={v.label + ' — drag to reorder, or out of the window to open it on its own'}
               aria-label={v.label}
               onClick={() => pickView(v.id)}
-              {...dragProps(v.id, 'luna/view', moveView)}
+              {...dragProps(v.id, 'luna/view', moveView, '', () => window.luna.popout.open(v.id))}
             >
               {v.icon}
             </button>
           ))}
-          <button
-            className="act"
-            data-tip="Pop this view out into its own window"
-            aria-label="Pop out this view"
-            onClick={() => window.luna.popout.open(view ?? 'files')}
-          >
-            <LuExternalLink />
-          </button>
           {mode === 'ide' && (
             <button
               className={'act' + (problemsOpen ? ' active' : '')}

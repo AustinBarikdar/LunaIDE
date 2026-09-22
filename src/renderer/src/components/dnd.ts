@@ -43,13 +43,27 @@ export function dropProps(
   }
 }
 
+/**
+ * The drag ended with nothing taking it and the pointer past the window's edge: the user pulled
+ * the thing out of the window. A drop on plain chrome inside the window is not that.
+ */
+export function droppedOutside(
+  e: Pick<DragEvent, 'dataTransfer' | 'screenX' | 'screenY'>
+): boolean {
+  if (e.dataTransfer?.dropEffect !== 'none') return false
+  const { screenX: x, screenY: y, outerWidth: w, outerHeight: h } = window
+  return e.screenX < x || e.screenY < y || e.screenX > x + w || e.screenY > y + h
+}
+
 /** Drag-source half, for a handle whose drop is handled by something else (a slot, say). */
 export function dragSource(
   id: string,
   kind: string,
-  label = ''
+  label = '',
+  /** Called when the drag ends outside the window: tear the thing off into its own window. */
+  onDragOut?: () => void
 ): Pick<Props, 'draggable' | 'onDragStart' | 'onDragEnd'> {
-  const full = dragProps(id, kind, () => {}, label)
+  const full = dragProps(id, kind, () => {}, label, onDragOut)
   return { draggable: true, onDragStart: full.onDragStart, onDragEnd: full.onDragEnd }
 }
 
@@ -64,7 +78,8 @@ export function dragProps(
   kind: string,
   onDrop: (from: string, to: string) => void,
   /** Shown inside the drop target while it is hovered, e.g. "terminals goes here". */
-  label = ''
+  label = '',
+  onDragOut?: () => void
 ): Props {
   const mine = (e: React.DragEvent): boolean => e.dataTransfer.types.includes(kind)
   return {
@@ -85,6 +100,7 @@ export function dragProps(
         el.classList.remove('drag-over')
         el.removeAttribute('data-drop-label')
       })
+      if (onDragOut && droppedOutside(e)) onDragOut()
     },
     onDragOver: (e) => {
       if (!mine(e)) return
