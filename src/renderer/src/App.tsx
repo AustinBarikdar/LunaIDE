@@ -623,6 +623,24 @@ export default function App(): React.JSX.Element {
       // which those are, since it holds the edit not yet flushed to state
       run: () => window.dispatchEvent(new Event('luna:close-saved'))
     },
+    ...(['next', 'prev'] as const).map((dir) => ({
+      id: `tab.${dir}`,
+      label: dir === 'next' ? 'Next Tab' : 'Previous Tab',
+      shortcut: `${mod}⇧${dir === 'next' ? ']' : '['}`,
+      enabled: files.length > 1,
+      run: () => {
+        const i = files.findIndex((f) => f.path === active)
+        const n = files.length
+        setActive(files[((i < 0 ? 0 : i) + (dir === 'next' ? 1 : n - 1)) % n].path)
+      }
+    })),
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
+      id: `tab.${n}`,
+      label: `Go to Tab ${n}`,
+      shortcut: `${mod}${n}`,
+      enabled: files.length >= n,
+      run: () => setActive(files[n - 1].path)
+    })),
     { id: 'mode.ide', label: 'Switch to IDE Mode', run: () => setMode('ide') },
     { id: 'mode.agent', label: 'Switch to Agents Mode', run: () => setMode('agent') },
     {

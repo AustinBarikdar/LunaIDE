@@ -67,6 +67,8 @@ The thin bottom status bar is available in both views. It shows the Git branch, 
 | ⌘F                                                | Find within the current editor                                         |
 | ⌘S / ⌘⇧S                                          | Save the active file / save every changed file                         |
 | ⌘W                                                | Close the active tab, asking first if it has unsaved edits             |
+| ⌘⇧] / ⌘⇧[                                         | Next / previous editor tab                                             |
+| ⌘1 … ⌘9                                           | Jump to that editor tab                                                |
 
 Use the popup's Files, Project Text, and Commands buttons to switch modes. Arrow keys navigate, Enter opens a result, and Escape closes the popup and restores focus. Opening a result in Agents mode switches to IDE mode and jumps to the file or match.
 

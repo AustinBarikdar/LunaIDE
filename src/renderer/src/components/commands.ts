@@ -22,7 +22,11 @@ export function shortcutCommand(
   if (key === 'p') return event.shiftKey ? 'search.commands' : 'search.files'
   if (key === 'f' && event.shiftKey) return 'search.text'
   if (key === 's' && event.shiftKey) return 'file.saveAll'
+  // ⌘⇧] and ⌘⇧[ cycle tabs; on a Mac the shifted keys report as } and {
+  if (event.shiftKey && (key === ']' || key === '}')) return 'tab.next'
+  if (event.shiftKey && (key === '[' || key === '{')) return 'tab.prev'
   if (event.shiftKey) return
+  if (/^[1-9]$/.test(key)) return `tab.${key}`
   return {
     s: 'file.save',
     w: 'file.close',
