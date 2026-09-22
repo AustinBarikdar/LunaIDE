@@ -291,6 +291,45 @@ export default function App(): React.JSX.Element {
     if (view) store('lastView', view)
   }, [view])
 
+  // A post from an agent gets a notification unless the Summaries view is already showing.
+  // The set of known posts is seeded when the project opens, so nothing fires for old ones.
+  useEffect(() => {
+    if (!project) return
+    let known: Set<string> | null = null
+    window.luna.summaries.list().then((list) => (known = new Set(list.map((s) => s.file))))
+    return window.luna.summaries.onChanged(() => {
+      window.luna.summaries.list().then((list) => {
+        if (!known) return
+        const fresh = list.filter((s) => !known!.has(s.file))
+        for (const s of fresh) known!.add(s.file)
+        // the view in effect is mirrored to storage on every change
+        if (!fresh.length || stored('view') === 'summaries') return
+        const [top] = fresh
+        const id = toast(
+          {
+            title:
+              fresh.length > 1 ? `${fresh.length} new posts from the team` : `${top.agent} posted`,
+            text: top.title,
+            actions: [
+              { label: 'Later', onClick: () => dismiss(id) },
+              {
+                label: 'Open',
+                primary: true,
+                onClick: () => {
+                  dismiss(id)
+                  setView('summaries')
+                  store('view', 'summaries')
+                }
+              }
+            ]
+          },
+          12000
+        )
+      })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project])
+
   const openProject = async (dir: string | null): Promise<void> => {
     if (!dir) return
     const version = ++projectVersion.current
