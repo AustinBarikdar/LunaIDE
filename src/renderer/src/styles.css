@@ -2834,6 +2834,25 @@ button.disclosure:hover {
   height: 100%;
 }
 
+/* working-tree changes: click for the diff, undo arrow to discard */
+.list-row.change {
+  cursor: pointer;
+}
+.list-row.change:hover {
+  background: var(--glass-strong);
+}
+.list-row.change .discard {
+  opacity: 0;
+}
+.list-row.change:hover .discard,
+.list-row.change .discard:focus-visible {
+  opacity: 1;
+}
+.select-pill.accent {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* commit graph */
 .graph {
   padding: 2px 0;

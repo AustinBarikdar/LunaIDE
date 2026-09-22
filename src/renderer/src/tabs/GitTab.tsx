@@ -8,7 +8,10 @@ import {
   LuCloud,
   LuGithub,
   LuGitMerge,
-  LuFileDiff
+  LuFileDiff,
+  LuUndo2,
+  LuPlus,
+  LuChevronDown
 } from 'react-icons/lu'
 import type { TabProps } from './types'
 import type { CommitDetail, GhStatus, GitLog, GitResult, GitStatus } from '../../../preload/index.d'
@@ -161,6 +164,12 @@ export default function GitTab({
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<CommitDetail | null>(null)
   const [busy, setBusy] = useState(false)
+  const [branches, setBranches] = useState<string[]>([])
+  /** The "new branch" name box is open. */
+  const [naming, setNaming] = useState(false)
+  const [newBranch, setNewBranch] = useState('')
+  /** Path of the change waiting for a "discard?" answer. */
+  const [confirmDiscard, setConfirmDiscard] = useState('')
 
   const openRef = useRef(open)
   openRef.current = open
@@ -179,6 +188,9 @@ export default function GitTab({
     })
     window.luna.git.log().then((l) => {
       if (projectRef.current === forProject) setLog(l)
+    })
+    window.luna.git.branches().then((b) => {
+      if (projectRef.current === forProject) setBranches(b)
     })
   }, [project])
   useEffect(() => setRepoName(''), [project])
@@ -217,6 +229,20 @@ export default function GitTab({
   const push = (): void => {
     if (st?.upstream) run('git push', window.luna.git.push)
     else setAsk(true)
+  }
+  const createBranch = (): void => {
+    const name = newBranch.trim()
+    if (!name || busy) return
+    run(`git checkout -b ${name}`, () => window.luna.git.createBranch(name)).then(() => {
+      setNaming(false)
+      setNewBranch('')
+    })
+  }
+  /** Show one working-tree change in the editor, green and red on the file. */
+  const showChange = (path: string): void => {
+    // a rename lists as "old -> new"; the new path is the one on disk
+    const file = path.split(' -> ').pop()!
+    window.luna.git.diff(file).then((d) => openDiff(file, d))
   }
 
   const head = (
@@ -313,9 +339,28 @@ export default function GitTab({
     <>
       {head}
       <div className="panel">
-        <div className="row">
-          <span className="pill accent">
+        <div className="row wrap">
+          <span className="select-pill accent" title="Switch branch">
             <LuGitBranch /> {st.branch || 'detached'}
+            <select
+              value={st.branch}
+              disabled={busy}
+              onChange={(e) => {
+                const name = e.target.value
+                if (name === '+') setNaming(true)
+                else if (name && name !== st.branch)
+                  run(`git checkout ${name}`, () => window.luna.git.checkout(name))
+              }}
+            >
+              {!branches.includes(st.branch) && <option value={st.branch}>{st.branch}</option>}
+              {branches.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+              <option value="+">New branch…</option>
+            </select>
+            <LuChevronDown />
           </span>
           {st.upstream ? (
             <span className="dim small">tracking {st.upstream}</span>
@@ -326,6 +371,27 @@ export default function GitTab({
           {st.ahead > 0 && <span className="chip">{st.ahead} to push</span>}
           {st.behind > 0 && <span className="chip">{st.behind} to pull</span>}
         </div>
+        {naming && (
+          <div className="row" style={{ marginTop: 6 }}>
+            <LuPlus className="dim" />
+            <input
+              autoFocus
+              value={newBranch}
+              placeholder="new branch name, from here"
+              onChange={(e) => setNewBranch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') createBranch()
+                else if (e.key === 'Escape') setNaming(false)
+              }}
+            />
+            <button className="primary" disabled={busy || !newBranch.trim()} onClick={createBranch}>
+              Create
+            </button>
+            <button className="ghost" onClick={() => setNaming(false)}>
+              Cancel
+            </button>
+          </div>
+        )}
 
         <div className="section">
           <div className="section-title">
@@ -338,9 +404,48 @@ export default function GitTab({
               </div>
             )}
             {st.changes.map((c) => (
-              <div key={c.path} className="list-row">
+              <div
+                key={c.path}
+                className="list-row change"
+                title="Show this change in the editor"
+                onClick={() => showChange(c.path)}
+              >
                 <span className={'st ' + statusClass(c.code)}>{c.code}</span>
                 <span className="mono ellipsis">{c.path}</span>
+                <span className="spacer" />
+                {confirmDiscard === c.path ? (
+                  <span className="row tight" onClick={(e) => e.stopPropagation()}>
+                    <span className="dim small">Discard?</span>
+                    <button
+                      className="small danger"
+                      disabled={busy}
+                      onClick={() => {
+                        setConfirmDiscard('')
+                        run(`discard ${c.path}`, () => window.luna.git.discard(c.code, c.path))
+                      }}
+                    >
+                      Discard
+                    </button>
+                    <button className="small ghost" onClick={() => setConfirmDiscard('')}>
+                      Keep
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    className="icon small ghost discard"
+                    title={
+                      c.code === '??' || c.code.includes('A')
+                        ? 'Discard: move this file to the Trash'
+                        : 'Discard: put this file back the way HEAD has it'
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setConfirmDiscard(c.path)
+                    }}
+                  >
+                    <LuUndo2 />
+                  </button>
+                )}
               </div>
             ))}
           </div>

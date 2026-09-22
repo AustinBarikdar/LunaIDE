@@ -26,7 +26,10 @@ export function uniqueName(name: string, taken: (n: string) => boolean): string 
 
 /** Make a file (empty) or a folder; a taken name gets a number. Returns the path made. */
 export function create(dir: string, name: string, folder: boolean): string {
-  const path = join(dir, uniqueName(name, (n) => existsSync(join(dir, n))))
+  const path = join(
+    dir,
+    uniqueName(name, (n) => existsSync(join(dir, n)))
+  )
   if (folder) mkdirSync(path, { recursive: true })
   else {
     mkdirSync(dirname(path), { recursive: true })

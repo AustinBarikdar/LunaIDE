@@ -64,7 +64,11 @@ Project searches respect nested `.gitignore` files and skip generated folders, s
 
 ## Source control
 
-The Git view carries the branch, the working-tree changes, a commit box, and a **History** graph at the bottom. Each commit sits on a rail: a filled dot is on the remote, a hollow dot with a **local** chip is still only in your clone, and a line marks where the upstream branch has got to. Branch and tag names show as chips, and merges are labelled.
+The Git view carries the branch, the working-tree changes, a commit box, and a **History** graph at the bottom.
+
+The branch name is a menu: pick another branch to check it out (branches that exist only on origin are listed too and start tracking when picked), or choose **New branch…** to start one from where you are. A checkout that git refuses, because of uncommitted changes for instance, shows git's reason in the output box.
+
+Each change in the **Changes** list opens in the editor when clicked, with the working-tree diff on the file. The undo arrow at the end of a row discards that change after a confirmation: a tracked file goes back to how HEAD has it, and a file that has no committed version (untracked, or added and not yet committed) goes to the Trash rather than being deleted outright. Each commit sits on a rail: a filled dot is on the remote, a hollow dot with a **local** chip is still only in your clone, and a line marks where the upstream branch has got to. Branch and tag names show as chips, and merges are labelled.
 
 Click a commit to open it: the full message, every branch that contains it, and the diff in green and red. Click a file inside that diff to open it in the editor with the same highlighting.
 

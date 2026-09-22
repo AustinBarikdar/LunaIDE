@@ -198,7 +198,9 @@ app.whenReady().then(() => {
     return new Promise<string>((resolve) => {
       const menu = Menu.buildFromTemplate(
         items.map((i) =>
-          i.id === '-' ? { type: 'separator' as const } : { label: i.label, click: () => resolve(i.id) }
+          i.id === '-'
+            ? { type: 'separator' as const }
+            : { label: i.label, click: () => resolve(i.id) }
         )
       )
       menu.popup({ window, callback: () => setTimeout(() => resolve(''), 0) })
@@ -220,7 +222,9 @@ app.whenReady().then(() => {
   ipcMain.handle('git', (_e, op: keyof typeof gitOps, ...args: string[]) =>
     op === 'gh'
       ? gitOps.gh()
-      : (gitOps[op] as (c: string, ...a: string[]) => unknown)(project, ...args)
+      : op === 'discard'
+        ? gitOps.discard(project, args[0], args[1], (p) => shell.trashItem(p))
+        : (gitOps[op] as (c: string, ...a: string[]) => unknown)(project, ...args)
   )
   ipcMain.handle('agents-preview', (_e, a: AgentName) => preview(a, project, hubStatus().port))
   ipcMain.handle('agents-status', (_e, a: AgentName) => agentStatus(a, project))

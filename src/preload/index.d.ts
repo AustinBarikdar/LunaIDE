@@ -158,6 +158,14 @@ export interface LunaApi {
     pull(): Promise<GitResult>
     /** Create this branch on origin and track it. */
     publish(): Promise<GitResult>
+    /** Local branches first, then ones that exist only on the remote. */
+    branches(): Promise<string[]>
+    checkout(name: string): Promise<GitResult>
+    createBranch(name: string): Promise<GitResult>
+    /** Working-tree diff of one changed file. */
+    diff(path: string): Promise<string>
+    /** Drop a working-tree change; a file with no committed version goes to the Trash. */
+    discard(code: string, path: string): Promise<GitResult>
     log(): Promise<GitLog>
     show(hash: string): Promise<CommitDetail>
     gh(): Promise<GhStatus>
