@@ -2,10 +2,58 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { live } from './termStore'
-import { termTheme } from './theme'
+import { termTheme, terminalFontSize } from './theme'
+import { findPathLinks, resolveLink } from './termLinks'
 
 /** agent = hub identity for agent terminals (claude, claude-2, codex…); cmd = what to run */
-export type Term = { id: string; name: string; cmd?: string; agent?: string; ws: string }
+/** cwd: a folder other than the project root, e.g. "Open terminal here" from the file tree. */
+export type Term = {
+  id: string
+  name: string
+  cmd?: string
+  agent?: string
+  ws: string
+  cwd?: string
+}
+
+// paths already seen on disk; a miss is asked again since the file may appear later
+const known = new Set<string>()
+let home = ''
+const exists = async (p: string): Promise<boolean> => {
+  if (known.has(p)) return true
+  const yes = await window.luna.fs.exists(p)
+  if (yes) known.add(p)
+  return yes
+}
+
+/** File paths in the output link to the editor (⌘-click, like a URL), at the line if one is printed. */
+function linkPaths(term: Terminal, cwd: string): void {
+  if (!home) window.luna.fs.home().then((h) => (home = h))
+  term.registerLinkProvider({
+    provideLinks(y, cb) {
+      const text = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? ''
+      const found = findPathLinks(text)
+      if (!found.length) return cb(undefined)
+      Promise.all(
+        found.map(async (f) => {
+          const abs = resolveLink(f.path, cwd, home)
+          if (!(await exists(abs))) return null
+          return {
+            range: { start: { x: f.start + 1, y }, end: { x: f.end, y } },
+            text: text.slice(f.start, f.end),
+            activate: (ev: MouseEvent) =>
+              (ev.metaKey || ev.ctrlKey) &&
+              window.dispatchEvent(
+                new CustomEvent('luna:open-path', {
+                  detail: { path: abs, line: f.line, col: f.col }
+                })
+              )
+          }
+        })
+      ).then((links) => cb(links.filter((l) => l !== null)))
+    }
+  })
+}
 
 export default function TermView({
   id,
@@ -29,13 +77,14 @@ export default function TermView({
         theme: termTheme(),
         allowTransparency: true,
         fontFamily: 'SF Mono, Menlo, monospace',
-        fontSize: 13,
+        fontSize: terminalFontSize(),
         lineHeight: 1.25,
         cursorBlink: true,
         scrollback: 5000
       })
       const fit = new FitAddon()
       term.loadAddon(fit)
+      linkPaths(term, cwd)
       const host = document.createElement('div')
       host.className = 'term-inner'
       // xterm measures the character cell when it opens, so the host has to be in the document

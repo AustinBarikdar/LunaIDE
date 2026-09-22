@@ -139,6 +139,20 @@ export async function diffFor(cwd: string, files: string[] = []): Promise<string
   return out.length > MAX_DIFF ? out.slice(0, MAX_DIFF) + '\n... (diff truncated)' : out
 }
 
+/** Local branches, then remote-only ones without their "origin/" (checkout tracks them). */
+export function parseBranches(local: string, remote: string): string[] {
+  const lines = (out: string): string[] =>
+    out
+      .split('\n')
+      .map((b) => b.trim())
+      .filter(Boolean)
+  const mine = lines(local)
+  const theirs = lines(remote)
+    .filter((b) => !b.endsWith('/HEAD'))
+    .map((b) => b.slice(b.indexOf('/') + 1))
+  return [...mine, ...theirs.filter((b, i) => !mine.includes(b) && theirs.indexOf(b) === i)]
+}
+
 export const ops = {
   async status(cwd: string): Promise<GitStatus> {
     const inside = await git(cwd, ['rev-parse', '--is-inside-work-tree'])
@@ -174,6 +188,36 @@ export const ops = {
 
   /** Create the branch on origin and start tracking it. */
   publish: (cwd: string): Promise<R> => git(cwd, ['push', '-u', 'origin', 'HEAD']),
+
+  async branches(cwd: string): Promise<string[]> {
+    const fmt = '--format=%(refname:short)'
+    const local = await git(cwd, ['branch', fmt])
+    const remote = await git(cwd, ['branch', '-r', fmt])
+    return local.code === 0 ? parseBranches(local.out, remote.out) : []
+  },
+  checkout: (cwd: string, name: string): Promise<R> => git(cwd, ['checkout', name]),
+  createBranch: (cwd: string, name: string): Promise<R> => git(cwd, ['checkout', '-b', name]),
+  /** Working-tree diff of one file (or the whole file, if untracked). */
+  diff: (cwd: string, path: string): Promise<string> => diffFor(cwd, [path]),
+  /**
+   * Throw a change away. Tracked files go back to HEAD; a file that only exists in the working
+   * tree (untracked, or added/renamed and then unstaged) goes to the Trash rather than rm.
+   */
+  async discard(
+    cwd: string,
+    code: string,
+    path: string,
+    trash: (p: string) => Promise<void>
+  ): Promise<R> {
+    if (code === '??') {
+      await trash(`${cwd}/${path}`)
+      return { code: 0, out: `${path} moved to the Trash` }
+    }
+    const paths = path.split(' -> ')
+    const r = await git(cwd, ['restore', '--staged', '--worktree', '--', ...paths])
+    if (r.code === 0 && /[AR]/.test(code)) await trash(`${cwd}/${paths[paths.length - 1]}`)
+    return r
+  },
 
   async log(cwd: string, limit = '60'): Promise<GitLog> {
     const s = await ops.status(cwd)

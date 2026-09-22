@@ -1,11 +1,12 @@
-// CodeMirror glue for Luna's LSP client: diagnostics from main → lint markers; completions on demand.
+// CodeMirror glue for Luna's LSP client: diagnostics from main → lint markers; completions, hover
+// text and go-to-definition on demand.
 import {
   autocompletion,
   type CompletionContext,
   type CompletionResult
 } from '@codemirror/autocomplete'
 import { linter, lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint'
-import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
+import { EditorView, ViewPlugin, hoverTooltip, keymap, type ViewUpdate } from '@codemirror/view'
 import { EditorSelection } from '@codemirror/state'
 import type { Text } from '@codemirror/state'
 import type { Extension } from '@codemirror/state'
@@ -122,7 +123,32 @@ export const forgetDiagnostics = (path: string): void => {
 }
 
 /** Extensions for one open file: gutter, change notifications (debounced), LSP-backed completion. */
-export function lspExtensions(path: string): Extension {
+export type Goto = (path: string, line: number, ch: number) => void
+
+/** Line/ch (0-based) of a document position. */
+const at = (view: EditorView, pos: number): { line: number; ch: number } => {
+  const line = view.state.doc.lineAt(pos)
+  return { line: line.number - 1, ch: pos - line.from }
+}
+/** The word around pos, or null when pos sits on whitespace or punctuation. */
+const wordAt = (view: EditorView, pos: number): { from: number; to: number } | null => {
+  const w = view.state.wordAt(pos)
+  return w && w.from < w.to ? { from: w.from, to: w.to } : null
+}
+
+/** Jump to the definition of the symbol at pos; the first location the server names wins. */
+async function gotoDefinition(
+  view: EditorView,
+  path: string,
+  pos: number,
+  go: Goto
+): Promise<void> {
+  const { line, ch } = at(view, pos)
+  const [loc] = await window.luna.lsp.definition(path, line, ch)
+  if (loc) go(loc.path, loc.line, loc.ch)
+}
+
+export function lspExtensions(path: string, goto?: Goto): Extension {
   let t: ReturnType<typeof setTimeout>
   const sync = ViewPlugin.fromClass(
     class {
@@ -157,5 +183,58 @@ export function lspExtensions(path: string): Extension {
   }
   // linter() owns the lint state field, so it survives the react wrapper's reconfigure calls
   const lint = linter((view) => toCm(view.state.doc, store.get(path)), { delay: 60 })
-  return [lintGutter(), lint, sync, autocompletion({ override: [source], activateOnTyping: true })]
+  // what the server knows about the word under the pointer, as plain text
+  const hover = hoverTooltip(
+    async (view, pos) => {
+      const word = wordAt(view, pos)
+      if (!word) return null
+      const { line, ch } = at(view, pos)
+      const text = await window.luna.lsp.hover(path, line, ch)
+      if (!text) return null
+      return {
+        pos: word.from,
+        end: word.to,
+        above: true,
+        create: () => {
+          const dom = document.createElement('div')
+          dom.className = 'cm-hover-doc'
+          dom.textContent = text
+          return { dom }
+        }
+      }
+    },
+    { hoverTime: 350 }
+  )
+  const jump: Extension = goto
+    ? [
+        keymap.of([
+          {
+            key: 'F12',
+            run: (view) => {
+              void gotoDefinition(view, path, view.state.selection.main.head, goto)
+              return true
+            }
+          }
+        ]),
+        // ⌘-click (Ctrl-click elsewhere) on a word jumps to where it is defined
+        EditorView.domEventHandlers({
+          mousedown: (e, view) => {
+            if (!(e.metaKey || e.ctrlKey) || e.button !== 0) return false
+            const pos = view.posAtCoords({ x: e.clientX, y: e.clientY })
+            if (pos === null || !wordAt(view, pos)) return false
+            e.preventDefault()
+            void gotoDefinition(view, path, pos, goto)
+            return true
+          }
+        })
+      ]
+    : []
+  return [
+    lintGutter(),
+    lint,
+    sync,
+    autocompletion({ override: [source], activateOnTyping: true }),
+    hover,
+    jump
+  ]
 }

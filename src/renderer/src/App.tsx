@@ -7,7 +7,7 @@ import AgentView from './components/AgentView'
 import ModeChooser, { Mode } from './components/ModeChooser'
 import type { Term } from './components/TermView'
 import { disposeTerm } from './components/termStore'
-import { applyTheme } from './components/theme'
+import { applyTheme, applyTerminalFont } from './components/theme'
 import { editorStatus } from './components/editorStore'
 import { dragProps, dragSource, dropProps, move, moveById } from './components/dnd'
 import GitTab from './tabs/GitTab'
@@ -55,7 +55,6 @@ import {
   LuCode,
   LuNetwork,
   LuTriangleAlert,
-  LuExternalLink,
   LuGripVertical,
   LuChevronLeft,
   LuChevronRight,
@@ -195,7 +194,7 @@ export default function App(): React.JSX.Element {
     store('workspaces', JSON.stringify(list))
   }
   /** agent = base identity (claude, codex, plugin id); a second Claude becomes claude-2 / "Claude Code 2". */
-  const addTerm = (name?: string, cmd?: string, agent?: string): void => {
+  const addTerm = (name?: string, cmd?: string, agent?: string, cwd?: string): void => {
     const id = crypto.randomUUID()
     setTerms((t) => {
       let identity: string | undefined
@@ -207,7 +206,7 @@ export default function App(): React.JSX.Element {
         identity = n === 1 ? agent : `${agent}-${n}`
         if (n > 1) label = `${label} ${n}`
       }
-      return [...t, { id, name: label, cmd, agent: identity, ws }]
+      return [...t, { id, name: label, cmd, agent: identity, ws, cwd }]
     })
   }
   // main has the last word on a terminal's hub identity, so mirror any rename it makes
@@ -291,6 +290,45 @@ export default function App(): React.JSX.Element {
     if (view) store('lastView', view)
   }, [view])
 
+  // A post from an agent gets a notification unless the Summaries view is already showing.
+  // The set of known posts is seeded when the project opens, so nothing fires for old ones.
+  useEffect(() => {
+    if (!project) return
+    let known: Set<string> | null = null
+    window.luna.summaries.list().then((list) => (known = new Set(list.map((s) => s.file))))
+    return window.luna.summaries.onChanged(() => {
+      window.luna.summaries.list().then((list) => {
+        if (!known) return
+        const fresh = list.filter((s) => !known!.has(s.file))
+        for (const s of fresh) known!.add(s.file)
+        // the view in effect is mirrored to storage on every change
+        if (!fresh.length || stored('view') === 'summaries') return
+        const [top] = fresh
+        const id = toast(
+          {
+            title:
+              fresh.length > 1 ? `${fresh.length} new posts from the team` : `${top.agent} posted`,
+            text: top.title,
+            actions: [
+              { label: 'Later', onClick: () => dismiss(id) },
+              {
+                label: 'Open',
+                primary: true,
+                onClick: () => {
+                  dismiss(id)
+                  setView('summaries')
+                  store('view', 'summaries')
+                }
+              }
+            ]
+          },
+          12000
+        )
+      })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project])
+
   const openProject = async (dir: string | null): Promise<void> => {
     if (!dir) return
     const version = ++projectVersion.current
@@ -318,6 +356,18 @@ export default function App(): React.JSX.Element {
     )
     setActive(path)
   }, [])
+
+  /** The tree renamed something: open tabs follow it (a folder carries everything under it). */
+  const under = (path: string, dir: string): boolean => path === dir || path.startsWith(dir + '/')
+  const renamePaths = (from: string, to: string): void => {
+    const map = (p: string): string => (under(p, from) ? to + p.slice(from.length) : p)
+    setFiles((fs) => fs.map((f) => (f.commit ? f : { ...f, path: map(f.path) })))
+    setActive((a) => (a ? map(a) : a))
+  }
+  const closePaths = (dir: string): void => {
+    setFiles((fs) => fs.filter((f) => f.commit || !under(f.path, dir)))
+    setActive((a) => (a && under(a, dir) ? null : a))
+  }
 
   /** Show a commit from the history as its own editor tab (IDE view only; agent view has no editor). */
   const openCommit = (commit: CommitDetail): void => {
@@ -367,6 +417,8 @@ export default function App(): React.JSX.Element {
 
   const theme = settings?.theme ?? 'system'
   useEffect(() => applyTheme(theme), [theme])
+  const terminalFontSize = settings?.terminalFontSize ?? 13
+  useEffect(() => applyTerminalFont(terminalFontSize), [terminalFontSize])
 
   const saveSetting = async (patch: Partial<Settings>): Promise<void> =>
     setSettings(await window.luna.settings.save(patch))
@@ -399,12 +451,26 @@ export default function App(): React.JSX.Element {
       })
     })
   }
-  const reveal = (path: string, line: number, ch: number): void => {
-    if (mode === 'agent') setMode('ide')
-    if (terminalOnly) toggleTerminalOnly()
-    openFile(path)
-    revealInEditor(path, line, ch)
-  }
+  const reveal = useCallback(
+    (path: string, line: number, ch: number): void => {
+      if (mode === 'agent') setMode('ide')
+      if (terminalOnly) toggleTerminalOnly()
+      openFile(path)
+      revealInEditor(path, line, ch)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, terminalOnly, openFile]
+  )
+  // a file path clicked in a terminal (printed lines are 1-based; 0 means none was printed)
+  useEffect(() => {
+    const h = (e: Event): void => {
+      const { path, line, col } = (e as CustomEvent<{ path: string; line: number; col: number }>)
+        .detail
+      reveal(path, Math.max(0, line - 1), Math.max(0, col - 1))
+    }
+    window.addEventListener('luna:open-path', h)
+    return () => window.removeEventListener('luna:open-path', h)
+  }, [reveal])
   const openSearch = (next: SearchMode): void => {
     if (!searchMode) searchReturnFocus.current = document.activeElement as HTMLElement | null
     setSearchMode(next)
@@ -430,15 +496,24 @@ export default function App(): React.JSX.Element {
     setProblemsOpen(true)
     store('problemsOpen', '1')
   }
-  const saveActive = async (): Promise<void> => {
-    const file = files.find((f) => f.path === active)
-    if (!file) return
+  const saveFile = async (path: string): Promise<void> => {
+    const file = files.find((f) => f.path === path)
+    if (!file || file.commit) return
     // state content can lag ~200ms behind typing (Editor.tsx debounces it); the mounted view is always current.
     const content = viewFor(file.path)?.state.doc.toString() ?? file.content
     await window.luna.writeFile(file.path, content)
     setFiles((current) =>
       current.map((f) => (f.path === file.path ? { ...f, content, saved: content } : f))
     )
+  }
+  const saveActive = (): Promise<void> => (active ? saveFile(active) : Promise.resolve())
+  const dirty = files.filter((f) => !f.commit && f.content !== f.saved)
+  const saveAll = async (): Promise<void> => {
+    for (const f of files) if (!f.commit) await saveFile(f.path)
+  }
+  /** ⌘W: the editor owns the close so a dirty tab can ask first. */
+  const closeActive = (): void => {
+    if (active) window.dispatchEvent(new CustomEvent('luna:close-tab', { detail: active }))
   }
   const mod = modifierLabel()
   const [layout, setLayout] = useState<Layout>(() => {
@@ -537,6 +612,26 @@ export default function App(): React.JSX.Element {
     for (const slot of SLOTS) if (collapsed[slot]) panelApi.current.get(slot)?.collapse()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupKey])
+  /**
+   * Dragging a pane's grip out past the window's edge tears its view off into its own window,
+   * and the pane makes way here. Terminals and the editor stay put: a torn-off window has neither.
+   */
+  const TEAR_OFF: PaneId[] = ['sidebar', 'problems']
+  // reached through an event so the render tree never references the fold logic (and its refs)
+  useEffect(() => {
+    const h = (e: Event): void => {
+      const { pane, slot } = (e as CustomEvent<{ pane: PaneId; slot: Slot }>).detail
+      if (pane === 'sidebar') {
+        window.luna.popout.open(view ?? 'files')
+        if (!collapsed[slot]) toggleCollapse(slot)
+      } else if (pane === 'problems') {
+        window.luna.popout.open('problems')
+        if (problemsOpen) toggleProblems()
+      }
+    }
+    window.addEventListener('luna:tear-off', h)
+    return () => window.removeEventListener('luna:tear-off', h)
+  })
   /** The Problems pane only takes its slot while it is switched on. */
   const slotShown = (s: Slot): boolean => layout[s] !== 'problems' || problemsOpen
   const slotProps = (slot: Slot): ReturnType<typeof dropProps> =>
@@ -576,6 +671,48 @@ export default function App(): React.JSX.Element {
       enabled: !!active,
       run: saveActive
     },
+    {
+      id: 'file.saveAll',
+      label: 'Save All',
+      keywords: 'write every dirty',
+      shortcut: `${mod}⇧S`,
+      enabled: dirty.length > 0,
+      run: saveAll
+    },
+    {
+      id: 'file.close',
+      label: 'Close Tab',
+      shortcut: `${mod}W`,
+      enabled: !!active,
+      run: closeActive
+    },
+    {
+      id: 'file.closeAll',
+      label: 'Close Saved Tabs',
+      keywords: 'close all others',
+      enabled: files.length > 0,
+      // tabs with unsaved edits stay open, so nothing is lost without a word; the editor decides
+      // which those are, since it holds the edit not yet flushed to state
+      run: () => window.dispatchEvent(new Event('luna:close-saved'))
+    },
+    ...(['next', 'prev'] as const).map((dir) => ({
+      id: `tab.${dir}`,
+      label: dir === 'next' ? 'Next Tab' : 'Previous Tab',
+      shortcut: `${mod}⇧${dir === 'next' ? ']' : '['}`,
+      enabled: files.length > 1,
+      run: () => {
+        const i = files.findIndex((f) => f.path === active)
+        const n = files.length
+        setActive(files[((i < 0 ? 0 : i) + (dir === 'next' ? 1 : n - 1)) % n].path)
+      }
+    })),
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
+      id: `tab.${n}`,
+      label: `Go to Tab ${n}`,
+      shortcut: `${mod}${n}`,
+      enabled: files.length >= n,
+      run: () => setActive(files[n - 1].path)
+    })),
     { id: 'mode.ide', label: 'Switch to IDE Mode', run: () => setMode('ide') },
     { id: 'mode.agent', label: 'Switch to Agents Mode', run: () => setMode('agent') },
     {
@@ -750,9 +887,23 @@ export default function App(): React.JSX.Element {
         <div className="pane-rail">
           <button
             className="pane-grip"
-            title={`Drag to move ${PANE_NAMES[c]}`}
+            title={
+              TEAR_OFF.includes(c)
+                ? `Drag to move ${PANE_NAMES[c]}, or out of the window to open it on its own`
+                : `Drag to move ${PANE_NAMES[c]}`
+            }
             aria-label={`Move ${PANE_NAMES[c]}`}
-            {...dragSource(c, 'luna/pane', PANE_NAMES[c])}
+            {...dragSource(
+              c,
+              'luna/pane',
+              PANE_NAMES[c],
+              TEAR_OFF.includes(c)
+                ? () =>
+                    window.dispatchEvent(
+                      new CustomEvent('luna:tear-off', { detail: { pane: c, slot } })
+                    )
+                : undefined
+            )}
           >
             <LuGripVertical />
           </button>
@@ -776,6 +927,9 @@ export default function App(): React.JSX.Element {
                     version={treeVersion}
                     active={active}
                     onOpen={openFile}
+                    onRenamed={renamePaths}
+                    onDeleted={closePaths}
+                    onTerminal={(dir) => addTerm(base(dir), undefined, undefined, dir)}
                   />
                 ) : (
                   <EmptyState
@@ -802,6 +956,12 @@ export default function App(): React.JSX.Element {
               onToggleProblems={toggleProblems}
               onStatus={editorStatus.set}
               onOpenFile={openDiff}
+              onSave={saveFile}
+              autosave={settings?.autosave}
+              fontSize={settings?.editorFontSize}
+              tabSize={settings?.tabSize}
+              wordWrap={settings?.wordWrap}
+              onGoto={reveal}
             />
           ) : (
             welcome
@@ -959,22 +1119,14 @@ export default function App(): React.JSX.Element {
             <button
               key={v.id}
               className={'act' + (view === v.id ? ' active' : '')}
-              data-tip={v.label + ' — drag to reorder'}
+              data-tip={v.label + ' — drag to reorder, or out of the window to open it on its own'}
               aria-label={v.label}
               onClick={() => pickView(v.id)}
-              {...dragProps(v.id, 'luna/view', moveView)}
+              {...dragProps(v.id, 'luna/view', moveView, '', () => window.luna.popout.open(v.id))}
             >
               {v.icon}
             </button>
           ))}
-          <button
-            className="act"
-            data-tip="Pop this view out into its own window"
-            aria-label="Pop out this view"
-            onClick={() => window.luna.popout.open(view ?? 'files')}
-          >
-            <LuExternalLink />
-          </button>
           {mode === 'ide' && (
             <button
               className={'act' + (problemsOpen ? ' active' : '')}

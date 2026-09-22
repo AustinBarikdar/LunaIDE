@@ -7,6 +7,12 @@ export type Settings = {
   vaultPath: string
   /** 'system' follows the OS appearance. */
   theme: 'light' | 'dark' | 'system'
+  /** Write a file on its own a moment after typing stops. */
+  autosave: boolean
+  editorFontSize: number
+  tabSize: number
+  wordWrap: boolean
+  terminalFontSize: number
   hubPort: number
   summarizer: 'claude' | 'codex'
   summarizerModel: string
@@ -18,6 +24,11 @@ export type Settings = {
 const defaults: Settings = {
   vaultPath: '',
   theme: 'system',
+  autosave: false,
+  editorFontSize: 13,
+  tabSize: 2,
+  wordWrap: false,
+  terminalFontSize: 13,
   hubPort: 4141,
   summarizer: 'claude',
   summarizerModel: '',

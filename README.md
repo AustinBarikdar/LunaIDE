@@ -22,6 +22,8 @@ On launch Luna asks how you want to work (tick "remember" to skip the question; 
 - **Agent view**: no editor. Workspaces run as tabs across the top, and terminals carry names of their own: double-click either to rename (call one "Frontend" and another "Backend"). A renamed terminal keeps the hub identity agents address it by, shown next to its name, and each holds agent terminals docked with draggable dividers. Three layouts sit in the workspace bar: **Grid** balances them (two side by side, four corners at three or four, three across from five up), **Columns** keeps them all in one row, **Rows** stacks them. Drag any divider to size a pane; Luna remembers the sizes per workspace and layout, including after a restart.
 - **IDE view**: files, editor, and the terminals as tabs in a bottom panel.
 
+File paths in terminal output are links: ⌘-click one (as you would a URL) and the file opens in the editor, at the line and column when the output printed them, as in `src/main/git.ts:12:5` or `a.tsx(3,4)`. Relative paths resolve against the terminal's folder, and only paths that exist light up.
+
 Terminals belong to Luna, not to a view: switching views or workspaces keeps every agent running and replays its recent output when it comes back on screen.
 
 ## Layout
@@ -41,7 +43,19 @@ Terminals belong to Luna, not to a view: switching views or workspaces keeps eve
 
 **Fold any of them away.** Hovering a pane shows two small controls on its left edge: the grip to drag it, and an arrow to fold it. A folded pane slides shut into a labelled strip with an arrow to bring it back, so you can hide the file tree while you work and get it back with one click. Dragging a divider all the way shut folds the pane the same way, and what you folded is still folded next time you open Luna. Every pane has a grip on its left edge that appears when you hover it. Drag one pane onto another slot and the two swap, so the terminals can sit on the left, the editor at the bottom, or the file tree beside the problems list. While you drag, the pane you picked up fades and the pane under the cursor turns into a translucent slot that names what is about to land there; the contents fade in when you let go. The arrangement is remembered; **Reset pane layout** in the quick menu (or the command palette) puts it back.
 
-**Pop a view out.** The last button on the left edge tears the current view off into its own window: Files, Source control, Summaries, Team, or Problems. It stays live, since both windows talk to the same Luna. Clicking a file there opens it in the main window's editor. Terminals stay in the main window.
+**Pull a view out.** Drag the side panel's grip, or the Problems pane's, out past the edge of the window and let go: the view opens in its own window and folds away here. Dragging a view's icon on the left edge out of the window does the same for that view. Files, Source control, Summaries, Team, and Problems can all be torn off; they stay live, since both windows talk to the same Luna, and clicking a file there opens it in the main window's editor. Terminals and the editor stay in the main window.
+
+## Editor
+
+A tab with unsaved edits shows a dot. Closing it, with the **×** or ⌘W, asks whether to save first; **Close Saved Tabs** in the command palette closes everything that is clean and leaves the rest open. ⌘S saves the active file and ⌘⇧S saves them all.
+
+Settings → **Editor** holds the editor font size, the terminal font size, the tab size, **Word wrap**, and **Autosave**, which writes a file on its own about a second after typing stops (nothing ever asks then). Every one of them applies at once, terminals already running included.
+
+A Markdown file has a **Preview** button in the tab bar that shows it rendered in place of the source; **Edit** brings the source back.
+
+## Files
+
+Right-click anywhere in the Files view for the usual file operations: **New File** and **New Folder** (made next to what you clicked, and the name is ready to type over), **Rename** in place, **Move to Trash** (so a slip is undoable from the Trash), **Reveal in Finder**, **Copy Path** or **Copy Relative Path**, and **Open Terminal Here**, which starts a shell in that folder. Open editor tabs follow a rename, including everything under a renamed folder, and close when their file goes to the Trash.
 
 ## Status bar and quick search
 
@@ -53,6 +67,10 @@ The thin bottom status bar is available in both views. It shows the Git branch, 
 | ⌘⇧F                                               | Find text across the project, with match-case and whole-word options   |
 | ⌘⇧P                                               | Find and run commands, including plugin agent launchers                |
 | ⌘F                                                | Find within the current editor                                         |
+| ⌘S / ⌘⇧S                                          | Save the active file / save every changed file                         |
+| ⌘W                                                | Close the active tab, asking first if it has unsaved edits             |
+| ⌘⇧] / ⌘⇧[                                         | Next / previous editor tab                                             |
+| ⌘1 … ⌘9                                           | Jump to that editor tab                                                |
 
 Use the popup's Files, Project Text, and Commands buttons to switch modes. Arrow keys navigate, Enter opens a result, and Escape closes the popup and restores focus. Opening a result in Agents mode switches to IDE mode and jumps to the file or match.
 
@@ -60,7 +78,11 @@ Project searches respect nested `.gitignore` files and skip generated folders, s
 
 ## Source control
 
-The Git view carries the branch, the working-tree changes, a commit box, and a **History** graph at the bottom. Each commit sits on a rail: a filled dot is on the remote, a hollow dot with a **local** chip is still only in your clone, and a line marks where the upstream branch has got to. Branch and tag names show as chips, and merges are labelled.
+The Git view carries the branch, the working-tree changes, a commit box, and a **History** graph at the bottom.
+
+The branch name is a menu: pick another branch to check it out (branches that exist only on origin are listed too and start tracking when picked), or choose **New branch…** to start one from where you are. A checkout that git refuses, because of uncommitted changes for instance, shows git's reason in the output box.
+
+Each change in the **Changes** list opens in the editor when clicked, with the working-tree diff on the file. The undo arrow at the end of a row discards that change after a confirmation: a tracked file goes back to how HEAD has it, and a file that has no committed version (untracked, or added and not yet committed) goes to the Trash rather than being deleted outright. Each commit sits on a rail: a filled dot is on the remote, a hollow dot with a **local** chip is still only in your clone, and a line marks where the upstream branch has got to. Branch and tag names show as chips, and merges are labelled.
 
 Click a commit to open it: the full message, every branch that contains it, and the diff in green and red. Click a file inside that diff to open it in the editor with the same highlighting.
 
@@ -90,7 +112,7 @@ Luna serves `http://127.0.0.1:4141/mcp/<agent>` while a project is open. The pat
 
 ## Linting, language servers, and plugins
 
-Luna speaks the Language Server Protocol (what most VS Code language extensions wrap). Bundled and on by default: TypeScript/JavaScript, JSON, CSS/SCSS/Less, HTML, and your project's own ESLint (run on the live buffer, no config needed beyond the project's). Diagnostics show as squiggles, gutter marks, a count on each editor tab, and in the **Problems** panel docked in the IDE's bottom-right corner next to the terminals (toggle it from the editor tab bar; click a problem to jump to it). Completion comes from the same servers. Add any other server (pyright, rust-analyzer, gopls…) in Settings → Extensions by command.
+Luna speaks the Language Server Protocol (what most VS Code language extensions wrap). Bundled and on by default: TypeScript/JavaScript, JSON, CSS/SCSS/Less, HTML, and your project's own ESLint (run on the live buffer, no config needed beyond the project's). Hovering a symbol shows what the server knows about it (its type, its signature, its docs). ⌘-click a symbol, or press F12 with the cursor on it, to jump to where it is defined, in another file if that is where it lives. Diagnostics show as squiggles, gutter marks, a count on each editor tab, and in the **Problems** panel docked in the IDE's bottom-right corner next to the terminals (toggle it from the editor tab bar; click a problem to jump to it). Completion comes from the same servers. Add any other server (pyright, rust-analyzer, gopls…) in Settings → Extensions by command.
 
 **Plugins** are folders with a `luna-plugin.json`, installed under Luna's app data:
 
@@ -129,6 +151,8 @@ Register from Settings → Agents. For Claude Code that writes `.mcp.json` plus 
 ## Notes on the code
 
 A summary can carry `notes`: one per meaningful line an agent added or removed, each with an exact snippet of that line and a plain-language reason, listed in the order the change flows. In the Summaries view a post shows its **How it flows** steps right under the title, with an **Explain on code** button in its header; the prose follows, and the raw diff is folded behind a toggle so the list stays short and quick. Click a step (or the button) and the file opens with the diff highlighted, every note drawn as a bubble under the line it explains, and a step bar under the editor tabs that walks the flow with previous and next, opening other files as the steps move into them. A note about a removal hangs off the red line. The idea is that someone who does not know the codebase can read a change top to bottom without opening anything else. **Clear** in the Summaries header deletes the posts (roll-ups stay), after a confirmation.
+
+When an agent posts while you are looking at something else, a notification in the corner names the agent and the title, with **Open** to jump to the Summaries view.
 
 ## Roll-up
 

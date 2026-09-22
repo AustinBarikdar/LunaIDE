@@ -1,9 +1,9 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
-import { watch, writeFileSync, FSWatcher } from 'fs'
+import { watch, writeFileSync, existsSync, FSWatcher } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { readDir, readFile, writeFile } from './fs'
+import { readDir, readFile, writeFile, create as fsCreate, rename as fsRename } from './fs'
 import {
   spawnPty,
   writePty,
@@ -159,6 +159,17 @@ const INBOX_NUDGE =
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('app.luna')
+  // Electron's default menu takes ⌘W for "Close Window" before the page sees the key; without
+  // that item the renderer gets it and closes the editor tab instead. Edit roles stay for copy/paste.
+  if (process.platform === 'darwin')
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        { role: 'appMenu' },
+        { role: 'editMenu' },
+        { role: 'viewMenu' },
+        { role: 'windowMenu' }
+      ])
+    )
   app.on('browser-window-created', (_, w) => optimizer.watchWindowShortcuts(w))
 
   ipcMain.handle('open-folder', async () => {
@@ -185,6 +196,29 @@ app.whenReady().then(() => {
   ipcMain.handle('read-dir', (_e, p: string) => readDir(p))
   ipcMain.handle('read-file', (_e, p: string) => readFile(p))
   ipcMain.handle('write-file', (_e, p: string, c: string) => writeFile(p, c))
+  ipcMain.handle('fs-create', (_e, dir: string, name: string, folder: boolean) =>
+    fsCreate(dir, name, folder)
+  )
+  ipcMain.handle('fs-rename', (_e, p: string, name: string) => fsRename(p, name))
+  // to the Trash, so a wrong click is not final
+  ipcMain.handle('fs-trash', (_e, p: string) => shell.trashItem(p))
+  ipcMain.handle('fs-reveal', (_e, p: string) => shell.showItemInFolder(p))
+  ipcMain.handle('fs-exists', (_e, p: string) => existsSync(p))
+  ipcMain.handle('home-dir', () => app.getPath('home'))
+  // ponytail: a native popup instead of a positioned div; resolves with the id picked, or ''
+  ipcMain.handle('context-menu', (e, items: { id: string; label: string }[]) => {
+    const window = BrowserWindow.fromWebContents(e.sender) ?? undefined
+    return new Promise<string>((resolve) => {
+      const menu = Menu.buildFromTemplate(
+        items.map((i) =>
+          i.id === '-'
+            ? { type: 'separator' as const }
+            : { label: i.label, click: () => resolve(i.id) }
+        )
+      )
+      menu.popup({ window, callback: () => setTimeout(() => resolve(''), 0) })
+    })
+  })
   ipcMain.handle('settings-get', () => getSettings())
   ipcMain.handle('settings-save', async (_e, patch) => {
     const before = getSettings().hubPort
@@ -201,7 +235,9 @@ app.whenReady().then(() => {
   ipcMain.handle('git', (_e, op: keyof typeof gitOps, ...args: string[]) =>
     op === 'gh'
       ? gitOps.gh()
-      : (gitOps[op] as (c: string, ...a: string[]) => unknown)(project, ...args)
+      : op === 'discard'
+        ? gitOps.discard(project, args[0], args[1], (p) => shell.trashItem(p))
+        : (gitOps[op] as (c: string, ...a: string[]) => unknown)(project, ...args)
   )
   ipcMain.handle('agents-preview', (_e, a: AgentName) => preview(a, project, hubStatus().port))
   ipcMain.handle('agents-status', (_e, a: AgentName) => agentStatus(a, project))
@@ -286,6 +322,12 @@ ${prompt}`
   ipcMain.handle('lsp-close', (_e, path: string) => lsp.close(path))
   ipcMain.handle('lsp-complete', (_e, path: string, line: number, ch: number) =>
     lsp.complete(path, line, ch)
+  )
+  ipcMain.handle('lsp-hover', (_e, path: string, line: number, ch: number) =>
+    lsp.hover(path, line, ch)
+  )
+  ipcMain.handle('lsp-definition', (_e, path: string, line: number, ch: number) =>
+    lsp.definition(path, line, ch)
   )
   ipcMain.handle('activity-list', () => (project ? readEvents(project) : []))
   ipcMain.handle('activity-clear', () => {

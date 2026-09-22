@@ -14,7 +14,8 @@ import {
   LuPalette,
   LuSun,
   LuMoon,
-  LuMonitor
+  LuMonitor,
+  LuCode
 } from 'react-icons/lu'
 import type { Settings, ServerConfig, AgentName, Preview } from '../../../preload/index.d'
 import { Avatar } from './ui'
@@ -25,7 +26,39 @@ type Props = {
   onClose: () => void
   initialTab?: SettingsTab
 }
-export type SettingsTab = 'appearance' | 'vault' | 'hub' | 'rollup' | 'extensions' | 'agents'
+export type SettingsTab =
+  'appearance' | 'editor' | 'vault' | 'hub' | 'rollup' | 'extensions' | 'agents'
+
+/**
+ * A number box that saves as you type, but only once the value sits inside its range: typing
+ * "18" passes through "1" without the box snapping to the minimum under your fingers.
+ */
+function NumberBox({
+  value,
+  min,
+  max,
+  onSave
+}: {
+  value: number
+  min: number
+  max: number
+  onSave: (n: number) => void
+}): React.JSX.Element {
+  return (
+    <input
+      key={value}
+      type="number"
+      min={min}
+      max={max}
+      defaultValue={value}
+      onChange={(e) => {
+        const n = Number(e.target.value)
+        if (e.target.value !== '' && Number.isInteger(n) && n >= min && n <= max && n !== value)
+          onSave(n)
+      }}
+    />
+  )
+}
 
 const THEMES = [
   { id: 'light' as const, label: 'Light', icon: <LuSun /> },
@@ -57,6 +90,12 @@ export default function SettingsModal({
             onClick={() => setTab('appearance')}
           >
             <LuPalette /> Appearance
+          </button>
+          <button
+            className={'nav-item' + (tab === 'editor' ? ' on' : '')}
+            onClick={() => setTab('editor')}
+          >
+            <LuCode /> Editor
           </button>
           <button
             className={'nav-item' + (tab === 'vault' ? ' on' : '')}
@@ -113,6 +152,61 @@ export default function SettingsModal({
                   </button>
                 ))}
               </div>
+            </>
+          )}
+          {tab === 'editor' && (
+            <>
+              <h2>Editor</h2>
+              <p className="dim">How the code and the terminals read. Changes apply at once.</p>
+              <div className="row wrap">
+                <label>
+                  Editor font size
+                  <NumberBox
+                    value={settings.editorFontSize}
+                    min={9}
+                    max={32}
+                    onSave={(n) => save({ editorFontSize: n })}
+                  />
+                </label>
+                <label>
+                  Terminal font size
+                  <NumberBox
+                    value={settings.terminalFontSize}
+                    min={9}
+                    max={32}
+                    onSave={(n) => save({ terminalFontSize: n })}
+                  />
+                </label>
+                <label>
+                  Tab size
+                  <NumberBox
+                    value={settings.tabSize}
+                    min={1}
+                    max={8}
+                    onSave={(n) => save({ tabSize: n })}
+                  />
+                </label>
+              </div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={settings.wordWrap}
+                  onChange={(e) => save({ wordWrap: e.target.checked })}
+                />
+                Word wrap: long lines fold at the edge instead of scrolling sideways
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={settings.autosave}
+                  onChange={(e) => save({ autosave: e.target.checked })}
+                />
+                Autosave: write a file on its own about a second after typing stops
+              </label>
+              <p className="dim">
+                With autosave off, a changed tab shows a dot and asks before it closes. ⌘S saves one
+                file, ⌘⇧S saves them all.
+              </p>
             </>
           )}
           {tab === 'vault' && (

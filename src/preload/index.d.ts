@@ -3,6 +3,12 @@ export type Settings = {
   vaultPath: string
   /** 'system' follows the OS appearance. */
   theme: 'light' | 'dark' | 'system'
+  /** Write a file on its own a moment after typing stops. */
+  autosave: boolean
+  editorFontSize: number
+  tabSize: number
+  wordWrap: boolean
+  terminalFontSize: number
   hubPort: number
   summarizer: 'claude' | 'codex'
   summarizerModel: string
@@ -137,6 +143,14 @@ export interface LunaApi {
     change(path: string, text: string): Promise<void>
     close(path: string): Promise<void>
     complete(path: string, line: number, ch: number): Promise<LspCompletion[]>
+    /** Plain-text description of the symbol at line/ch (0-based), or ''. */
+    hover(path: string, line: number, ch: number): Promise<string>
+    /** Where the symbol at line/ch is defined; empty when the server has no answer. */
+    definition(
+      path: string,
+      line: number,
+      ch: number
+    ): Promise<{ path: string; line: number; ch: number }[]>
     onDiagnostics(cb: (path: string, source: string, diags: LspDiagnostic[]) => void): () => void
   }
   activity: {
@@ -158,6 +172,14 @@ export interface LunaApi {
     pull(): Promise<GitResult>
     /** Create this branch on origin and track it. */
     publish(): Promise<GitResult>
+    /** Local branches first, then ones that exist only on the remote. */
+    branches(): Promise<string[]>
+    checkout(name: string): Promise<GitResult>
+    createBranch(name: string): Promise<GitResult>
+    /** Working-tree diff of one changed file. */
+    diff(path: string): Promise<string>
+    /** Drop a working-tree change; a file with no committed version goes to the Trash. */
+    discard(code: string, path: string): Promise<GitResult>
     log(): Promise<GitLog>
     show(hash: string): Promise<CommitDetail>
     gh(): Promise<GhStatus>
@@ -197,6 +219,18 @@ export interface LunaApi {
   readDir(path: string): Promise<Entry[]>
   readFile(path: string): Promise<string>
   writeFile(path: string, content: string): Promise<void>
+  fs: {
+    /** Make an empty file or a folder inside `dir`; a taken name gets a number. Returns its path. */
+    create(dir: string, name: string, folder: boolean): Promise<string>
+    /** Rename in place (refuses to overwrite). Returns the new path. */
+    rename(path: string, name: string): Promise<string>
+    trash(path: string): Promise<void>
+    reveal(path: string): Promise<void>
+    exists(path: string): Promise<boolean>
+    home(): Promise<string>
+  }
+  /** Native popup at the cursor; resolves with the chosen id, '' if dismissed. `id: '-'` is a separator. */
+  contextMenu(items: { id: string; label: string }[]): Promise<string>
   onFileChanged(cb: (path: string) => void): () => void
   settings: {
     get(): Promise<Settings>

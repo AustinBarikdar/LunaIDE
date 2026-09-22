@@ -60,6 +60,23 @@ export const isDark = (): boolean => document.documentElement.dataset.theme === 
 /** Terminal palette for the theme in effect right now. */
 export const termTheme = (): typeof LIGHT => (isDark() ? DARK : LIGHT)
 
+let termFont = 13
+export const terminalFontSize = (): number => termFont
+
+/** Resize the type in every live terminal; each refits so the pty learns its new columns. */
+export function applyTerminalFont(size: number): void {
+  termFont = size
+  for (const rec of live.values()) {
+    if (rec.term.options.fontSize === size) continue
+    rec.term.options.fontSize = size
+    try {
+      rec.fit.fit()
+    } catch {
+      /* hidden terminal: it fits when shown */
+    }
+  }
+}
+
 /** Paint the whole app, live terminals included. Returns an unsubscribe for 'system'. */
 export function applyTheme(theme: Theme): () => void {
   const paint = (): void => {

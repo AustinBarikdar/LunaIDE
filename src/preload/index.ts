@@ -32,6 +32,8 @@ const api: LunaApi = {
     change: (p, t) => ipcRenderer.invoke('lsp-change', p, t),
     close: (p) => ipcRenderer.invoke('lsp-close', p),
     complete: (p, l, c) => ipcRenderer.invoke('lsp-complete', p, l, c),
+    hover: (p, l, c) => ipcRenderer.invoke('lsp-hover', p, l, c),
+    definition: (p, l, c) => ipcRenderer.invoke('lsp-definition', p, l, c),
     onDiagnostics: (cb) => on('lsp-diagnostics', cb)
   },
   activity: {
@@ -51,6 +53,11 @@ const api: LunaApi = {
     push: () => ipcRenderer.invoke('git', 'push'),
     pull: () => ipcRenderer.invoke('git', 'pull'),
     publish: () => ipcRenderer.invoke('git', 'publish'),
+    branches: () => ipcRenderer.invoke('git', 'branches'),
+    checkout: (name) => ipcRenderer.invoke('git', 'checkout', name),
+    createBranch: (name) => ipcRenderer.invoke('git', 'createBranch', name),
+    diff: (path) => ipcRenderer.invoke('git', 'diff', path),
+    discard: (code, path) => ipcRenderer.invoke('git', 'discard', code, path),
     log: () => ipcRenderer.invoke('git', 'log'),
     show: (hash) => ipcRenderer.invoke('git', 'show', hash),
     gh: () => ipcRenderer.invoke('git', 'gh'),
@@ -86,6 +93,15 @@ const api: LunaApi = {
   readDir: (p) => ipcRenderer.invoke('read-dir', p),
   readFile: (p) => ipcRenderer.invoke('read-file', p),
   writeFile: (p, c) => ipcRenderer.invoke('write-file', p, c),
+  fs: {
+    create: (dir, name, folder) => ipcRenderer.invoke('fs-create', dir, name, folder),
+    rename: (p, name) => ipcRenderer.invoke('fs-rename', p, name),
+    trash: (p) => ipcRenderer.invoke('fs-trash', p),
+    reveal: (p) => ipcRenderer.invoke('fs-reveal', p),
+    exists: (p) => ipcRenderer.invoke('fs-exists', p),
+    home: () => ipcRenderer.invoke('home-dir')
+  },
+  contextMenu: (items) => ipcRenderer.invoke('context-menu', items),
   onFileChanged: (cb) => on('file-changed', cb),
   settings: {
     get: () => ipcRenderer.invoke('settings-get'),

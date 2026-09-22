@@ -1,6 +1,6 @@
 // Minimal Language Server Protocol client: one server per language config, full-document sync,
 // diagnostics + completion. Plus CLI linters (eslint --format json) that run on the buffer.
-// ponytail: no incremental sync, no hover/rename/goto; add when someone misses them.
+// ponytail: no incremental sync, no rename; add when someone misses them.
 import { spawn, type ChildProcess } from 'child_process'
 import { createRequire } from 'module'
 import { pathToFileURL } from 'url'
@@ -12,6 +12,14 @@ import {
   type MessageConnection
 } from 'vscode-jsonrpc/node'
 import { sh, q } from './shell'
+import {
+  hoverText,
+  definitionList,
+  type Marked,
+  type Location,
+  type LspLocation,
+  type LspLink
+} from './lspText'
 
 export type Diagnostic = {
   from: { line: number; ch: number }
@@ -181,7 +189,9 @@ function start(cfg: ServerConfig): Server {
           synchronization: { didSave: true },
           completion: {
             completionItem: { snippetSupport: false, documentationFormat: ['plaintext'] }
-          }
+          },
+          hover: { contentFormat: ['plaintext', 'markdown'] },
+          definition: {}
         },
         workspace: { configuration: true, workspaceFolders: true }
       },
@@ -267,6 +277,38 @@ export async function complete(path: string, line: number, ch: number): Promise<
     insert: i.insertText ?? i.textEdit?.newText
   }))
 }
+/** A ready server with the file open, or null when nothing speaks for this file. */
+async function serverFor(path: string): Promise<Server | null> {
+  const cfg = forExt(path, 'lsp')
+  if (!cfg) return null
+  const s = start(cfg)
+  await s.ready
+  return s.open.has(path) ? s : null
+}
+const at = (path: string, line: number, ch: number): object => ({
+  textDocument: { uri: pathToFileURL(path).href },
+  position: { line, character: ch }
+})
+
+/** What the server knows about the symbol under the cursor, as plain text ('' for nothing). */
+export async function hover(path: string, line: number, ch: number): Promise<string> {
+  const s = await serverFor(path)
+  if (!s) return ''
+  const r = (await s.conn
+    .sendRequest('textDocument/hover', at(path, line, ch))
+    .catch(() => null)) as { contents: Marked | Marked[] } | null
+  return r ? hoverText(r.contents) : ''
+}
+
+export async function definition(path: string, line: number, ch: number): Promise<Location[]> {
+  const s = await serverFor(path)
+  if (!s) return []
+  const r = (await s.conn
+    .sendRequest('textDocument/definition', at(path, line, ch))
+    .catch(() => null)) as LspLocation | LspLocation[] | LspLink[] | null
+  return definitionList(r)
+}
+
 type LspItem = {
   label: string
   detail?: string

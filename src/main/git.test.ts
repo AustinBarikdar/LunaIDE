@@ -1,7 +1,7 @@
 // ponytail: the one non-trivial parser in git.ts. Run: npm test
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseStatus, parseLog } from './git.ts'
+import { parseStatus, parseLog, parseBranches } from './git.ts'
 
 test('parseStatus', () => {
   assert.deepEqual(parseStatus('## main...origin/main [ahead 1]\n M src/a.ts\n?? new.txt'), {
@@ -52,4 +52,12 @@ test('parseLog marks commits that only exist locally', () => {
   )
   // no upstream at all: nothing has been pushed anywhere
   assert.ok(parseLog(out, null).every((c) => c.local))
+})
+
+test('parseBranches lists local first and remote-only branches without origin/', () => {
+  assert.deepEqual(
+    parseBranches('main\nfeature/x\n', 'origin/HEAD\norigin/main\norigin/release/1.0\n'),
+    ['main', 'feature/x', 'release/1.0']
+  )
+  assert.deepEqual(parseBranches('', ''), [])
 })
