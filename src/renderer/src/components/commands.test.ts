@@ -16,6 +16,8 @@ test('search shortcuts coexist with save, panels, and native editor find', () =>
   assert.equal(shortcutCommand(event('F', true)), 'search.text')
   assert.equal(shortcutCommand(event('f')), undefined)
   assert.equal(shortcutCommand(event('s')), 'file.save')
+  assert.equal(shortcutCommand(event('S', true)), 'file.saveAll')
+  assert.equal(shortcutCommand(event('w')), 'file.close')
   assert.equal(shortcutCommand(event('b')), 'view.sidebar')
   assert.equal(shortcutCommand(event('j')), 'view.terminal')
   assert.equal(shortcutCommand({ ...event('p'), ctrlKey: false, metaKey: true }), 'search.files')

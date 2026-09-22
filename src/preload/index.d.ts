@@ -3,6 +3,8 @@ export type Settings = {
   vaultPath: string
   /** 'system' follows the OS appearance. */
   theme: 'light' | 'dark' | 'system'
+  /** Write a file on its own a moment after typing stops. */
+  autosave: boolean
   hubPort: number
   summarizer: 'claude' | 'codex'
   summarizerModel: string

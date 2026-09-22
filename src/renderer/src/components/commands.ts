@@ -21,9 +21,11 @@ export function shortcutCommand(
   const key = event.key.toLowerCase()
   if (key === 'p') return event.shiftKey ? 'search.commands' : 'search.files'
   if (key === 'f' && event.shiftKey) return 'search.text'
+  if (key === 's' && event.shiftKey) return 'file.saveAll'
   if (event.shiftKey) return
   return {
     s: 'file.save',
+    w: 'file.close',
     b: 'view.sidebar',
     j: 'view.terminal',
     t: 'team.open',

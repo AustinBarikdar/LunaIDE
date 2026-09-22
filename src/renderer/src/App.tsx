@@ -442,15 +442,24 @@ export default function App(): React.JSX.Element {
     setProblemsOpen(true)
     store('problemsOpen', '1')
   }
-  const saveActive = async (): Promise<void> => {
-    const file = files.find((f) => f.path === active)
-    if (!file) return
+  const saveFile = async (path: string): Promise<void> => {
+    const file = files.find((f) => f.path === path)
+    if (!file || file.commit) return
     // state content can lag ~200ms behind typing (Editor.tsx debounces it); the mounted view is always current.
     const content = viewFor(file.path)?.state.doc.toString() ?? file.content
     await window.luna.writeFile(file.path, content)
     setFiles((current) =>
       current.map((f) => (f.path === file.path ? { ...f, content, saved: content } : f))
     )
+  }
+  const saveActive = (): Promise<void> => (active ? saveFile(active) : Promise.resolve())
+  const dirty = files.filter((f) => !f.commit && f.content !== f.saved)
+  const saveAll = async (): Promise<void> => {
+    for (const f of files) if (!f.commit) await saveFile(f.path)
+  }
+  /** ⌘W: the editor owns the close so a dirty tab can ask first. */
+  const closeActive = (): void => {
+    if (active) window.dispatchEvent(new CustomEvent('luna:close-tab', { detail: active }))
   }
   const mod = modifierLabel()
   const [layout, setLayout] = useState<Layout>(() => {
@@ -587,6 +596,32 @@ export default function App(): React.JSX.Element {
       shortcut: `${mod}S`,
       enabled: !!active,
       run: saveActive
+    },
+    {
+      id: 'file.saveAll',
+      label: 'Save All',
+      keywords: 'write every dirty',
+      shortcut: `${mod}⇧S`,
+      enabled: dirty.length > 0,
+      run: saveAll
+    },
+    {
+      id: 'file.close',
+      label: 'Close Tab',
+      shortcut: `${mod}W`,
+      enabled: !!active,
+      run: closeActive
+    },
+    {
+      id: 'file.closeAll',
+      label: 'Close Saved Tabs',
+      keywords: 'close all others',
+      enabled: files.length > 0,
+      // tabs with unsaved edits stay open, so nothing is lost without a word
+      run: () => {
+        setFiles(dirty)
+        setActive((a) => (dirty.some((f) => f.path === a) ? a : (dirty[0]?.path ?? null)))
+      }
     },
     { id: 'mode.ide', label: 'Switch to IDE Mode', run: () => setMode('ide') },
     { id: 'mode.agent', label: 'Switch to Agents Mode', run: () => setMode('agent') },
@@ -817,6 +852,8 @@ export default function App(): React.JSX.Element {
               onToggleProblems={toggleProblems}
               onStatus={editorStatus.set}
               onOpenFile={openDiff}
+              onSave={saveFile}
+              autosave={settings?.autosave}
             />
           ) : (
             welcome

@@ -48,6 +48,14 @@ export default function Popout({ view }: { view: string }): React.JSX.Element {
   }, [])
   const theme = settings?.theme ?? 'system'
   useEffect(() => applyTheme(theme), [theme])
+  // the app menu gave ⌘W up so the editor can close tabs; here it closes the window as before
+  useEffect(() => {
+    const h = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') window.close()
+    }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [])
   // the editor lives in the main window, so a torn-off Problems view listens for itself
   useEffect(
     () =>

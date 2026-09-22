@@ -43,6 +43,12 @@ Terminals belong to Luna, not to a view: switching views or workspaces keeps eve
 
 **Pop a view out.** The last button on the left edge tears the current view off into its own window: Files, Source control, Summaries, Team, or Problems. It stays live, since both windows talk to the same Luna. Clicking a file there opens it in the main window's editor. Terminals stay in the main window.
 
+## Editor
+
+A tab with unsaved edits shows a dot. Closing it, with the **×** or ⌘W, asks whether to save first; **Close Saved Tabs** in the command palette closes everything that is clean and leaves the rest open. ⌘S saves the active file and ⌘⇧S saves them all. Settings → Appearance → **Autosave** writes a file on its own about a second after typing stops, in which case nothing ever asks.
+
+A Markdown file has a **Preview** button in the tab bar that shows it rendered in place of the source; **Edit** brings the source back.
+
 ## Files
 
 Right-click anywhere in the Files view for the usual file operations: **New File** and **New Folder** (made next to what you clicked, and the name is ready to type over), **Rename** in place, **Move to Trash** (so a slip is undoable from the Trash), **Reveal in Finder**, **Copy Path** or **Copy Relative Path**, and **Open Terminal Here**, which starts a shell in that folder. Open editor tabs follow a rename, including everything under a renamed folder, and close when their file goes to the Trash.
@@ -57,6 +63,8 @@ The thin bottom status bar is available in both views. It shows the Git branch, 
 | ⌘⇧F                                               | Find text across the project, with match-case and whole-word options   |
 | ⌘⇧P                                               | Find and run commands, including plugin agent launchers                |
 | ⌘F                                                | Find within the current editor                                         |
+| ⌘S / ⌘⇧S                                          | Save the active file / save every changed file                         |
+| ⌘W                                                | Close the active tab, asking first if it has unsaved edits             |
 
 Use the popup's Files, Project Text, and Commands buttons to switch modes. Arrow keys navigate, Enter opens a result, and Escape closes the popup and restores focus. Opening a result in Agents mode switches to IDE mode and jumps to the file or match.
 

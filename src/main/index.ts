@@ -159,6 +159,17 @@ const INBOX_NUDGE =
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('app.luna')
+  // Electron's default menu takes ⌘W for "Close Window" before the page sees the key; without
+  // that item the renderer gets it and closes the editor tab instead. Edit roles stay for copy/paste.
+  if (process.platform === 'darwin')
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        { role: 'appMenu' },
+        { role: 'editMenu' },
+        { role: 'viewMenu' },
+        { role: 'windowMenu' }
+      ])
+    )
   app.on('browser-window-created', (_, w) => optimizer.watchWindowShortcuts(w))
 
   ipcMain.handle('open-folder', async () => {

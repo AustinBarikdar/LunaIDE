@@ -21,11 +21,13 @@ import {
   LuTriangleAlert,
   LuGitCommitHorizontal,
   LuChevronLeft,
-  LuChevronRight
+  LuChevronRight,
+  LuEye,
+  LuPencil
 } from 'react-icons/lu'
 import { diffOverlay } from './diffOverlay'
 import { EmptyState } from './ui'
-import { DiffView } from './Markdown'
+import Markdown, { DiffView } from './Markdown'
 import { fmtTime } from './util'
 import { isDark } from './theme'
 import { move } from './dnd'
@@ -58,7 +60,12 @@ type Props = {
   onStatus: (status: EditorStatus) => void
   /** Open one file of a commit or a flow with its diff highlighted. */
   onOpenFile: (relPath: string, fileDiff: string, flow?: Flow) => void
+  onSave: (path: string) => Promise<void>
+  /** Write a file on its own a moment after typing stops. */
+  autosave?: boolean
 }
+
+const isMarkdown = (path: string): boolean => /\.(md|markdown)$/i.test(path)
 
 /** Walk a summary's notes step by step; steps in other files open them. */
 function FlowBar({
@@ -138,6 +145,27 @@ function CommitPage({
   )
 }
 
+/** CodeMirror setup for the active tab, rebuilt only when the tab or its diff changes. */
+function useExtensions(
+  path: string | undefined,
+  diff: string | undefined,
+  notes: Flow['notes'] | undefined,
+  focus: number | undefined
+): Extension[] {
+  return useMemo(
+    () =>
+      path
+        ? [
+            ...lang(path),
+            search(),
+            lspExtensions(path),
+            ...(diff ? [diffOverlay(diff, notes ?? [], path, focus ?? 0)] : [])
+          ]
+        : [],
+    [path, diff, notes, focus]
+  )
+}
+
 function lang(path: string): Extension[] {
   const ext = path.split('.').pop() ?? ''
   if (/^(js|jsx|mjs|cjs)$/.test(ext)) return [javascript({ jsx: true })]
@@ -158,9 +186,15 @@ export default function Editor({
   problemsOpen,
   onToggleProblems,
   onStatus,
-  onOpenFile
+  onOpenFile,
+  onSave,
+  autosave
 }: Props): React.JSX.Element {
   const file = files.find((f) => f.path === active)
+  /** Markdown files being shown rendered instead of as source. */
+  const [preview, setPreview] = useState<string[]>([])
+  /** A dirty tab whose close is waiting for save / don't save / cancel. */
+  const [closing, setClosing] = useState<string | null>(null)
   const opened = useRef<Set<string>>(new Set())
   const [problems, setProblems] = useState<Record<string, number>>({})
   const activePath = file?.path
@@ -175,12 +209,17 @@ export default function Editor({
     value: string
     timer: ReturnType<typeof setTimeout>
   } | null>(null)
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const flushEdit = (): void => {
     const p = pendingEdit.current
     if (!p) return
     clearTimeout(p.timer)
     pendingEdit.current = null
     setFiles((fs) => fs.map((f) => (f.path === p.path ? { ...f, content: p.value } : f)))
+    if (autosave) {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+      autosaveTimer.current = setTimeout(() => onSave(p.path), 800)
+    }
   }
   useEffect(() => {
     window.addEventListener('beforeunload', flushEdit)
@@ -194,20 +233,7 @@ export default function Editor({
     [activePath]
   )
   const isCommit = !!file?.commit
-  const extensions = useMemo(
-    () =>
-      activePath
-        ? [
-            ...lang(activePath),
-            search(),
-            lspExtensions(activePath),
-            ...(activeDiff
-              ? [diffOverlay(activeDiff, activeNotes ?? [], activePath, activeFocus ?? 0)]
-              : [])
-          ]
-        : [],
-    [activePath, activeDiff, activeNotes, activeFocus]
-  )
+  const extensions = useExtensions(activePath, activeDiff, activeNotes, activeFocus)
 
   // tell the language servers which files are open
   useEffect(() => {
@@ -244,11 +270,43 @@ export default function Editor({
     return () => window.removeEventListener('luna:theme', onTheme)
   }, [])
 
-  const close = (path: string): void => {
+  const drop = (path: string): void => {
+    setClosing(null)
+    // a pending autosave for a tab that is going away must not write after "Don't save"
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
     const rest = files.filter((f) => f.path !== path)
     setFiles(rest)
     if (active === path) setActive(rest.at(-1)?.path ?? null)
   }
+  /** Closing a tab with unsaved edits asks first; the bar under the tabs holds the answer. */
+  const close = (path: string): void => {
+    // the buffer may hold an edit not yet flushed to state
+    flushEdit()
+    const f = files.find((x) => x.path === path)
+    const held = pendingEdit.current
+    const content = held?.path === path ? held.value : f?.content
+    if (f && !f.commit && content !== f.saved) {
+      // with autosave on, nothing ever asks: the edit was going to be written anyway
+      if (autosave) return void onSave(path).then(() => drop(path))
+      setActive(path)
+      setClosing(path)
+    } else drop(path)
+  }
+  const closingFile = closing ? files.find((f) => f.path === closing) : undefined
+  // ⌘W arrives from App as an event, so the dirty check above runs for it too
+  useEffect(() => {
+    const h = (e: Event): void => close((e as CustomEvent<string>).detail)
+    window.addEventListener('luna:close-tab', h)
+    return () => window.removeEventListener('luna:close-tab', h)
+  })
+  const togglePreview = (path: string): void => {
+    flushEdit()
+    // the source view is about to unmount; nothing should try to reveal into it
+    if (!preview.includes(path)) unregisterView(path)
+    setPreview((list) => (list.includes(path) ? list.filter((p) => p !== path) : [...list, path]))
+  }
+  const showingPreview =
+    !!file && !file.commit && isMarkdown(file.path) && preview.includes(file.path)
 
   return (
     <>
@@ -292,6 +350,16 @@ export default function Editor({
           <LuTriangleAlert /> Problems
           {problemTotal > 0 && <span className="problems">{problemTotal}</span>}
         </button>
+        {file && !isCommit && isMarkdown(file.path) && (
+          <button
+            className={'small' + (showingPreview ? ' active' : '')}
+            title={showingPreview ? 'Back to the source' : 'Show the rendered markdown'}
+            aria-pressed={showingPreview}
+            onClick={() => togglePreview(file.path)}
+          >
+            {showingPreview ? <LuPencil /> : <LuEye />} {showingPreview ? 'Edit' : 'Preview'}
+          </button>
+        )}
         {file?.diff && !isCommit && (
           <>
             <button
@@ -311,6 +379,27 @@ export default function Editor({
           </>
         )}
       </div>
+      {closingFile && (
+        <div className="ask closing" role="alertdialog">
+          <span>
+            Save changes to <b>{closingFile.path.split('/').pop()}</b> before closing?
+          </span>
+          <span className="spacer" />
+          <button className="small ghost" onClick={() => setClosing(null)}>
+            Cancel
+          </button>
+          <button className="small danger" onClick={() => drop(closingFile.path)}>
+            Don&apos;t save
+          </button>
+          <button
+            className="small primary"
+            autoFocus
+            onClick={() => onSave(closingFile.path).then(() => drop(closingFile.path))}
+          >
+            Save
+          </button>
+        </div>
+      )}
       {file?.flow && !isCommit && (
         <FlowBar
           path={file.path}
@@ -337,6 +426,10 @@ export default function Editor({
       <div className="fill">
         {file?.commit ? (
           <CommitPage commit={file.commit} onOpenFile={onOpenFile} />
+        ) : file && showingPreview ? (
+          <div className="md-preview">
+            <Markdown text={file.content} />
+          </div>
         ) : file ? (
           <CodeMirror
             key={file.path + (file.diff ? ':diff' : '')}

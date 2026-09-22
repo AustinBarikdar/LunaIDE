@@ -113,6 +113,19 @@ export default function SettingsModal({
                   </button>
                 ))}
               </div>
+              <h2 style={{ marginTop: 18 }}>Editor</h2>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={settings.autosave}
+                  onChange={(e) => save({ autosave: e.target.checked })}
+                />
+                Autosave: write a file on its own about a second after typing stops
+              </label>
+              <p className="dim">
+                Off, a changed tab shows a dot and asks before it closes. ⌘S saves one file, ⌘⇧S
+                saves them all.
+              </p>
             </>
           )}
           {tab === 'vault' && (
