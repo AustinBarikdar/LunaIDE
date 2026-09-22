@@ -86,6 +86,13 @@ const api: LunaApi = {
   readDir: (p) => ipcRenderer.invoke('read-dir', p),
   readFile: (p) => ipcRenderer.invoke('read-file', p),
   writeFile: (p, c) => ipcRenderer.invoke('write-file', p, c),
+  fs: {
+    create: (dir, name, folder) => ipcRenderer.invoke('fs-create', dir, name, folder),
+    rename: (p, name) => ipcRenderer.invoke('fs-rename', p, name),
+    trash: (p) => ipcRenderer.invoke('fs-trash', p),
+    reveal: (p) => ipcRenderer.invoke('fs-reveal', p)
+  },
+  contextMenu: (items) => ipcRenderer.invoke('context-menu', items),
   onFileChanged: (cb) => on('file-changed', cb),
   settings: {
     get: () => ipcRenderer.invoke('settings-get'),

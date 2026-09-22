@@ -5,7 +5,8 @@ import { live } from './termStore'
 import { termTheme } from './theme'
 
 /** agent = hub identity for agent terminals (claude, claude-2, codex…); cmd = what to run */
-export type Term = { id: string; name: string; cmd?: string; agent?: string; ws: string }
+/** cwd: a folder other than the project root, e.g. "Open terminal here" from the file tree. */
+export type Term = { id: string; name: string; cmd?: string; agent?: string; ws: string; cwd?: string }
 
 export default function TermView({
   id,

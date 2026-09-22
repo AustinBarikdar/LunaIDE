@@ -195,7 +195,7 @@ export default function App(): React.JSX.Element {
     store('workspaces', JSON.stringify(list))
   }
   /** agent = base identity (claude, codex, plugin id); a second Claude becomes claude-2 / "Claude Code 2". */
-  const addTerm = (name?: string, cmd?: string, agent?: string): void => {
+  const addTerm = (name?: string, cmd?: string, agent?: string, cwd?: string): void => {
     const id = crypto.randomUUID()
     setTerms((t) => {
       let identity: string | undefined
@@ -207,7 +207,7 @@ export default function App(): React.JSX.Element {
         identity = n === 1 ? agent : `${agent}-${n}`
         if (n > 1) label = `${label} ${n}`
       }
-      return [...t, { id, name: label, cmd, agent: identity, ws }]
+      return [...t, { id, name: label, cmd, agent: identity, ws, cwd }]
     })
   }
   // main has the last word on a terminal's hub identity, so mirror any rename it makes
@@ -318,6 +318,18 @@ export default function App(): React.JSX.Element {
     )
     setActive(path)
   }, [])
+
+  /** The tree renamed something: open tabs follow it (a folder carries everything under it). */
+  const under = (path: string, dir: string): boolean => path === dir || path.startsWith(dir + '/')
+  const renamePaths = (from: string, to: string): void => {
+    const map = (p: string): string => (under(p, from) ? to + p.slice(from.length) : p)
+    setFiles((fs) => fs.map((f) => (f.commit ? f : { ...f, path: map(f.path) })))
+    setActive((a) => (a ? map(a) : a))
+  }
+  const closePaths = (dir: string): void => {
+    setFiles((fs) => fs.filter((f) => f.commit || !under(f.path, dir)))
+    setActive((a) => (a && under(a, dir) ? null : a))
+  }
 
   /** Show a commit from the history as its own editor tab (IDE view only; agent view has no editor). */
   const openCommit = (commit: CommitDetail): void => {
@@ -776,6 +788,9 @@ export default function App(): React.JSX.Element {
                     version={treeVersion}
                     active={active}
                     onOpen={openFile}
+                    onRenamed={renamePaths}
+                    onDeleted={closePaths}
+                    onTerminal={(dir) => addTerm(base(dir), undefined, undefined, dir)}
                   />
                 ) : (
                   <EmptyState

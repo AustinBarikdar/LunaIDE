@@ -126,7 +126,7 @@ export default function TerminalPanel({
           <TermView
             key={t.id}
             id={t.id}
-            cwd={dir}
+            cwd={t.cwd ?? dir}
             cmd={t.cmd}
             agent={t.agent}
             visible={t.id === current}

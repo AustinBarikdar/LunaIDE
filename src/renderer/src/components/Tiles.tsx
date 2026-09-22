@@ -84,7 +84,7 @@ export default function Tiles({
         </button>
       </div>
       <div className="term-host">
-        <TermView id={t.id} cwd={cwd} cmd={t.cmd} agent={t.agent} visible={visible} />
+        <TermView id={t.id} cwd={t.cwd ?? cwd} cmd={t.cmd} agent={t.agent} visible={visible} />
       </div>
     </Panel>
   )

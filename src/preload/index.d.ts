@@ -197,6 +197,16 @@ export interface LunaApi {
   readDir(path: string): Promise<Entry[]>
   readFile(path: string): Promise<string>
   writeFile(path: string, content: string): Promise<void>
+  fs: {
+    /** Make an empty file or a folder inside `dir`; a taken name gets a number. Returns its path. */
+    create(dir: string, name: string, folder: boolean): Promise<string>
+    /** Rename in place (refuses to overwrite). Returns the new path. */
+    rename(path: string, name: string): Promise<string>
+    trash(path: string): Promise<void>
+    reveal(path: string): Promise<void>
+  }
+  /** Native popup at the cursor; resolves with the chosen id, '' if dismissed. `id: '-'` is a separator. */
+  contextMenu(items: { id: string; label: string }[]): Promise<string>
   onFileChanged(cb: (path: string) => void): () => void
   settings: {
     get(): Promise<Settings>

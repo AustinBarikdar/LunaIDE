@@ -1,9 +1,9 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
 import { watch, writeFileSync, FSWatcher } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { readDir, readFile, writeFile } from './fs'
+import { readDir, readFile, writeFile, create as fsCreate, rename as fsRename } from './fs'
 import {
   spawnPty,
   writePty,
@@ -185,6 +185,25 @@ app.whenReady().then(() => {
   ipcMain.handle('read-dir', (_e, p: string) => readDir(p))
   ipcMain.handle('read-file', (_e, p: string) => readFile(p))
   ipcMain.handle('write-file', (_e, p: string, c: string) => writeFile(p, c))
+  ipcMain.handle('fs-create', (_e, dir: string, name: string, folder: boolean) =>
+    fsCreate(dir, name, folder)
+  )
+  ipcMain.handle('fs-rename', (_e, p: string, name: string) => fsRename(p, name))
+  // to the Trash, so a wrong click is not final
+  ipcMain.handle('fs-trash', (_e, p: string) => shell.trashItem(p))
+  ipcMain.handle('fs-reveal', (_e, p: string) => shell.showItemInFolder(p))
+  // ponytail: a native popup instead of a positioned div; resolves with the id picked, or ''
+  ipcMain.handle('context-menu', (e, items: { id: string; label: string }[]) => {
+    const window = BrowserWindow.fromWebContents(e.sender) ?? undefined
+    return new Promise<string>((resolve) => {
+      const menu = Menu.buildFromTemplate(
+        items.map((i) =>
+          i.id === '-' ? { type: 'separator' as const } : { label: i.label, click: () => resolve(i.id) }
+        )
+      )
+      menu.popup({ window, callback: () => setTimeout(() => resolve(''), 0) })
+    })
+  })
   ipcMain.handle('settings-get', () => getSettings())
   ipcMain.handle('settings-save', async (_e, patch) => {
     const before = getSettings().hubPort

@@ -43,6 +43,10 @@ Terminals belong to Luna, not to a view: switching views or workspaces keeps eve
 
 **Pop a view out.** The last button on the left edge tears the current view off into its own window: Files, Source control, Summaries, Team, or Problems. It stays live, since both windows talk to the same Luna. Clicking a file there opens it in the main window's editor. Terminals stay in the main window.
 
+## Files
+
+Right-click anywhere in the Files view for the usual file operations: **New File** and **New Folder** (made next to what you clicked, and the name is ready to type over), **Rename** in place, **Move to Trash** (so a slip is undoable from the Trash), **Reveal in Finder**, **Copy Path** or **Copy Relative Path**, and **Open Terminal Here**, which starts a shell in that folder. Open editor tabs follow a rename, including everything under a renamed folder, and close when their file goes to the Trash.
+
 ## Status bar and quick search
 
 The thin bottom status bar is available in both views. It shows the Git branch, error and warning counts, Search, and hub connection. IDE mode also shows the active cursor position and file language. Click the branch for Source Control, the problem counts for Problems, or the hub indicator for its settings.
