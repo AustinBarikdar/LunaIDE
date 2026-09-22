@@ -159,7 +159,6 @@ function useExtensions(
   diff: string | undefined,
   notes: Flow['notes'] | undefined,
   focus: number | undefined,
-  fontSize: number,
   tabSize: number,
   wrap: boolean,
   goto: Props['onGoto']
@@ -171,14 +170,13 @@ function useExtensions(
             ...lang(path),
             search(),
             lspExtensions(path, goto),
-            EditorView.theme({ '&': { fontSize: `${fontSize}px` } }),
             EditorState.tabSize.of(tabSize),
             indentUnit.of(' '.repeat(tabSize)),
             ...(wrap ? [EditorView.lineWrapping] : []),
             ...(diff ? [diffOverlay(diff, notes ?? [], path, focus ?? 0)] : [])
           ]
         : [],
-    [path, diff, notes, focus, fontSize, tabSize, wrap, goto]
+    [path, diff, notes, focus, tabSize, wrap, goto]
   )
 }
 
@@ -258,7 +256,6 @@ export default function Editor({
     activeDiff,
     activeNotes,
     activeFocus,
-    fontSize,
     tabSize,
     wordWrap,
     onGoto
@@ -478,6 +475,7 @@ export default function Editor({
             value={file.content}
             theme={dark ? 'dark' : 'light'}
             height="100%"
+            style={{ fontSize: `${fontSize}px` }}
             extensions={extensions}
             onCreateEditor={(view) => {
               registerView(file.path, view)

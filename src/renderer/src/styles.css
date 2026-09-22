@@ -930,7 +930,7 @@ pre.console.error {
 .cm-editor {
   height: 100%;
   background: transparent;
-  font-size: 13px;
+  /* font size comes from Settings → Editor, set inline on the wrapper */
 }
 .cm-editor .cm-scroller {
   font-family: var(--mono);
