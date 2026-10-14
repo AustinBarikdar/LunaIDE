@@ -1,6 +1,60 @@
 # Luna
 
-A light-mode Electron + React IDE built around your own CLI coding agents (Claude Code, Codex). Luna adds the connective tissue: a local MCP hub the agents share, an Obsidian-compatible markdown vault for memory, a Summaries tab that rolls up every agent's posts, and a Git tab.
+<p align="center">
+  <img src="docs/media/explain.webp" alt="Luna explaining an agent's change on the code: numbered bubbles under the lines it added, a step bar to walk the change, and the agents running in terminals beside it" width="100%">
+</p>
+
+Luna is an Electron + React IDE built around the CLI coding agents you already pay for: Claude Code and Codex run in its terminals, and Luna adds what they are missing when they work together. A local MCP hub they all talk through, a markdown vault that doubles as their memory (open it in Obsidian), a team prompt that hands one job to a planner and its coders, summaries that explain every change on the code itself, and source control that never makes you leave.
+
+## What it is for
+
+### Give a team of agents one job
+
+Open as many agent terminals as you want, name them, and write the job once. Pick which terminal **plans** and which ones **code**. The planner searches the shared memory, splits the job into tasks, and delegates each one through Luna; every coder gets its task in its inbox and starts straight away, then reports back when it is done.
+
+<p align="center">
+  <img src="docs/media/team.webp" alt="The Team view: a job written in the team prompt, three agent terminals with plans and codes roles, and the agents running in a grid" width="100%">
+</p>
+
+### See what they did, on the code
+
+Every agent posts a summary when it finishes, and a good one carries notes: the reason behind each line it added or removed, in the order the change flows. **How it flows** lists those steps under the post; **Explain on code** opens the file with the diff highlighted and every note drawn as a bubble under the line it explains. A step bar walks the change from the first line to the last, hopping files as it goes, so someone who has never seen the codebase can follow what happened without opening anything else.
+
+<p align="center">
+  <img src="docs/media/flow.gif" alt="Clicking Explain on code opens the file with the diff and the notes as bubbles, then the step bar walks through the change across files" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/media/summaries.webp" alt="The Summaries view with a post's How it flows list next to the agents working in a grid" width="100%">
+</p>
+
+### Follow the conversation
+
+Everything that goes through the hub is logged: summaries, tasks, messages between agents, nudges, and your own notes. The Team view shows who is working on what right now, then the whole exchange as a timeline or a chat. A composer at the top drops a note into one agent's inbox, so you can change course mid-job without interrupting the run.
+
+<p align="center">
+  <img src="docs/media/chat.webp" alt="The chat feed: a summary from claude, a nudge from Luna, and a report from claude-3 to claude" width="100%">
+</p>
+
+### Ship it from the same window
+
+The Source control view has the branch, the changes, a commit box, and a history graph that shows which commits are still only on your machine. Click a commit to read it with its full diff, push, or publish the branch; with no remote yet it creates the GitHub repository for you through the GitHub CLI.
+
+<p align="center">
+  <img src="docs/media/git-history.webp" alt="Source control: the history with branch chips, a commit opened in the editor with its diff, and the terminal below" width="100%">
+</p>
+
+### Make the workbench yours
+
+Five slots hold the side panel, the editor, the terminals, the problems list, and whatever you want beside the editor. Drag a pane by its grip onto another slot and the two swap, with a preview of where it will land; fold any pane away into a strip and bring it back with one click; tear a view off into its own window. Light or dark, your call.
+
+<p align="center">
+  <img src="docs/media/panes.gif" alt="Dragging the side panel into the empty slot right of the editor, then folding the terminals away and bringing them back" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/media/light.webp" alt="Luna in light mode with a file open, the summaries beside it, and a Claude terminal below" width="100%">
+</p>
 
 ## Run
 
@@ -28,10 +82,10 @@ Terminals belong to Luna, not to a view: switching views or workspaces keeps eve
 
 ## Layout
 
-- Left edge: activity buttons that switch the sidebar between **Files**, **Git** (init / commit / push / pull / history), **Summaries** (agent posts with diffs + roll-up), **Agents** (hub status + registration) and **Settings** (vault path, hub port, summarizer). Click the active one to collapse the sidebar. **Terms** at the bottom hides the editor for a terminal-only layout.
+- Left edge: activity buttons that switch the sidebar between **Files**, **Git** (init / commit / push / pull / history), **Summaries** (agent posts with their flow + roll-up) and **Team** (the team prompt, the agents, and the activity); **Settings** (vault path, hub port, summarizer, appearance) sits at the bottom. Click the active one to collapse the sidebar. **Terms** at the bottom hides the editor for a terminal-only layout.
 - Center: CodeMirror editor (⌘S saves). Bottom: terminals (login shells, so `claude` and `codex` are on PATH) with one-click **Claude** / **Codex** launch buttons.
 - Clicking a file name inside a summary's diff opens it in the editor with added lines highlighted green and removed lines shown in red where they were.
-- The **+** button in the bottom-right corner blooms into a quick menu: jump to any view, flip Agent/IDE view, launch Claude or Codex, open Settings (⌘,).
+- The crown button in the title bar (or ⌘T) jumps to the team prompt from anywhere; ⌘⇧P opens the command palette with everything else.
 
 ## Make it yours
 
@@ -41,7 +95,7 @@ Terminals belong to Luna, not to a view: switching views or workspaces keeps eve
 
 **Move the panes too.** IDE view has five slots: the side panel, the editor, a panel to the right of the editor, the bottom panel, and the corner beside it. The right one starts empty, as a thin strip that says **Drag a panel here**; drop anything into it and it opens up.
 
-**Fold any of them away.** Hovering a pane shows two small controls on its left edge: the grip to drag it, and an arrow to fold it. A folded pane slides shut into a labelled strip with an arrow to bring it back, so you can hide the file tree while you work and get it back with one click. Dragging a divider all the way shut folds the pane the same way, and what you folded is still folded next time you open Luna. Every pane has a grip on its left edge that appears when you hover it. Drag one pane onto another slot and the two swap, so the terminals can sit on the left, the editor at the bottom, or the file tree beside the problems list. While you drag, the pane you picked up fades and the pane under the cursor turns into a translucent slot that names what is about to land there; the contents fade in when you let go. The arrangement is remembered; **Reset pane layout** in the quick menu (or the command palette) puts it back.
+**Fold any of them away.** Hovering a pane shows two small controls on its left edge: the grip to drag it, and an arrow to fold it. A folded pane slides shut into a labelled strip with an arrow to bring it back, so you can hide the file tree while you work and get it back with one click. Dragging a divider all the way shut folds the pane the same way, and what you folded is still folded next time you open Luna. Every pane has a grip on its left edge that appears when you hover it. Drag one pane onto another slot and the two swap, so the terminals can sit on the left, the editor at the bottom, or the file tree beside the problems list. While you drag, the pane you picked up fades and the pane under the cursor turns into a translucent slot that names what is about to land there; the contents fade in when you let go. The arrangement is remembered; **Reset pane layout** in the command palette puts it back.
 
 **Pull a view out.** Drag the side panel's grip, or the Problems pane's, out past the edge of the window and let go: the view opens in its own window and folds away here. Dragging a view's icon on the left edge out of the window does the same for that view. Files, Source control, Summaries, Team, and Problems can all be torn off; they stay live, since both windows talk to the same Luna, and clicking a file there opens it in the main window's editor. Terminals and the editor stay in the main window.
 
